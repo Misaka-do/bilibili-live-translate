@@ -5,6 +5,8 @@ __pycache__/
 .eggs/
 build/
 dist/
+*.spec
+*.zip
 
 # 虚拟环境（约 3.6GB，用户自己按 requirements.txt 装）
 venv/

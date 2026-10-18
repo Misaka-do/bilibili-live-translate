@@ -58,8 +58,8 @@ UA = (
 )
 HTTP_HEADERS = {"User-Agent": UA, "Referer": REFERER}
 
-CONFIG_PATH = os.path.join(ROOT, "config.json")
-WEB_INDEX = os.path.join(HERE, "web", "index.html")
+CONFIG_PATH = os.path.join(streamer_profile.APP_ROOT, "config.json")
+WEB_INDEX = os.path.join(streamer_profile.BUNDLE_DIR, "web", "index.html")
 
 POLL_INTERVAL = 10          # 秒：轮询直播间状态
 MAX_SEG_QUEUE = 3           # 待识别队列上限，超出丢弃最旧（保证低延迟、不堆积）

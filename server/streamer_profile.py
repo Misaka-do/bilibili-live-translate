@@ -14,6 +14,7 @@
 """
 import json
 import os
+import sys
 import threading
 import time
 import wave
@@ -24,8 +25,22 @@ import requests
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 
-PROFILES_DIR = os.path.join(ROOT, "profiles")
-LOGS_DIR = os.path.join(ROOT, "logs")
+
+def _is_frozen():
+    """是否运行在 PyInstaller 打包后的环境。"""
+    return getattr(sys, "frozen", False)
+
+
+# 运行时数据根目录（可写的 profiles/logs/config 放这里）：
+#   源码运行 = 项目根目录；打包运行 = exe 所在目录（用户解压后的文件夹）。
+APP_ROOT = os.path.dirname(sys.executable) if _is_frozen() else ROOT
+
+# 只读资源目录（web/index.html 等随包分发的数据）：
+#   源码运行 = server 目录；打包运行 = PyInstaller 解压的临时目录 _MEIPASS。
+BUNDLE_DIR = getattr(sys, "_MEIPASS", HERE) if _is_frozen() else HERE
+
+PROFILES_DIR = os.path.join(APP_ROOT, "profiles")
+LOGS_DIR = os.path.join(APP_ROOT, "logs")
 
 # 本程序的共享 HTTP 会话：显式关闭代理（trust_env=False）。
 # DeepSeek（api.deepseek.com）与 B站（api.live.bilibili.com）都是国内直连接口，
