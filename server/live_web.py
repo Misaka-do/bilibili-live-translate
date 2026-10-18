@@ -579,6 +579,10 @@ async def ws_handler(ws):
                     await check_room(asyncio.get_running_loop())
             elif t == "getStatus":
                 await ws.send(json.dumps(status_message(), ensure_ascii=False))
+            elif t == "checkNow":
+                # 手动触发一次开播检查（不等下一次轮询周期）
+                print("[checkNow] 手动检查开播状态", flush=True)
+                await check_room(asyncio.get_running_loop())
     except websockets.exceptions.ConnectionClosed:
         pass
     finally:

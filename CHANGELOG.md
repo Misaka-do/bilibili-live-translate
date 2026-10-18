@@ -4,6 +4,11 @@
 
 格式基于[约定式提交](https://www.conventionalcommits.org/zh-hans/)（feat / fix / docs / refactor / chore）。
 
+## [2.4.0] - 2026-10-19
+
+### 新增
+- **Web 端「检测开播」按钮**：手动点击立即触发一次主播开播检查，不用等轮询周期（默认 10 秒）。
+
 ## [2.3.0] - 2026-10-18
 
 ### 新增

@@ -98,6 +98,7 @@
         <button class="btn" id="fontMinus" title="缩小字号">A-</button>
         <button class="btn" id="fontPlus" title="放大字号">A+</button>
         <button class="btn" id="clearBtn" title="清屏">清屏</button>
+        <button class="btn" id="checkBtn" title="立即检查主播是否开播">检测开播</button>
         <button class="btn" id="settingsBtn">设置</button>
       </div>
     </div>
@@ -244,6 +245,14 @@
   $('clearBtn').onclick = () => {
     list.querySelectorAll('.sub').forEach((n) => n.remove());
     lastId = -1; lastSub = null; pendingNew = 0; moreBtn.style.display = 'none';
+  };
+  $('checkBtn').onclick = () => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      statusText.textContent = '未连接，请稍候重试';
+      return;
+    }
+    ws.send(JSON.stringify({ type: 'checkNow' }));
+    statusText.textContent = '检查开播中…';
   };
 
   // 房间下拉
