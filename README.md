@@ -2,6 +2,8 @@
 
 一个「浏览器插件 + 本地语音识别服务」的实时翻译工具，用来实时翻译 B 站日本 VTuber 直播和视频。
 
+> **作者**：Misaka-do　|　**AI 协作模型**：DeepSeek V4 Pro　|　**开发工具**：DeepSeek Harness
+
 - **本地语音识别**（faster-whisper / kotoba-whisper / SenseVoice）：把直播里的日语语音转成文字
 - **DeepSeek 翻译**：把日语文字翻译成简体中文（由本地服务直连调用，避开浏览器代理问题）
 - **浏览器插件**：采集标签页声音 → 送到本地识别服务 → 接收识别+翻译结果 → 叠加字幕
