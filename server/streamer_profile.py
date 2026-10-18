@@ -70,6 +70,51 @@ def load_profile(room_id):
         return None
 
 
+def list_profiles():
+    """扫描 profiles/ 目录，返回所有主播画像的 [{room_id, name, face}, ...]。
+
+    供 Web 端「预设主播」下拉列表使用：往 profiles/ 丢一个画像文件，重启后列表里就多一个主播，
+    无需改代码、无需手动输房间号。按 room_id 升序排列。
+    """
+    result = []
+    if not os.path.isdir(PROFILES_DIR):
+        return result
+    try:
+        names = sorted(os.listdir(PROFILES_DIR))
+    except OSError:
+        return result
+    for fn in names:
+        if not fn.endswith(".json"):
+            continue
+        path = os.path.join(PROFILES_DIR, fn)
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            continue
+        if not isinstance(data, dict):
+            continue
+        rid = data.get("room_id")
+        name = (data.get("name") or "").strip()
+        if rid is None and fn[:-5].isdigit():
+            rid = int(fn[:-5])  # 兜底：文件名就是房间号
+        if rid is None:
+            continue
+        result.append(
+            {
+                "room_id": rid,
+                "name": name or str(rid),
+                "face": (data.get("face") or "").strip(),
+            }
+        )
+    # 按 room_id 排序
+    try:
+        result.sort(key=lambda x: (str(x["room_id"]), x["room_id"]))
+    except TypeError:
+        pass
+    return result
+
+
 def render_profile(profile):
     """把画像里的术语/梗/听错词/风格渲染成提示词片段。"""
     lines = []

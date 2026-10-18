@@ -71,8 +71,10 @@ vad_threshold = 0.5         # Silero VAD 置信度阈值（越小越灵敏，越
 config = {"room_id": 0, "api_key": ""}
 live_info = {"live": False, "title": "", "uname": "", "face": ""}
 
-# 预设主播（下拉选择用）。默认留空，用户可在网页设置里自行添加常看的主播。
-PRESET_ROOMS = []
+# 预设主播（下拉选择用）：启动时从 profiles/ 目录自动扫描主播画像生成。
+# 往 profiles/ 丢一个 <房间号>.json 画像文件，重启后下拉列表里就有这个主播，
+# 选中即加载其房间号 + 专属画像（术语/梗/听错词）用于翻译。
+PRESET_ROOMS = streamer_profile.list_profiles()
 
 # 头像/昵称缓存：card 接口不随轮询反复请求，命中缓存直接复用（避免 403）
 anchor_cache = {}            # room_id -> {"uname": str, "face": str, "ts": float}
@@ -238,7 +240,8 @@ def status_message():
         {
             "room_id": p["room_id"],
             "name": p["name"],
-            "face": (anchor_cache.get(p["room_id"]) or {}).get("face", ""),
+            # 头像优先用画像里存好的 face，其次才用实时拉取的缓存
+            "face": p.get("face") or (anchor_cache.get(p["room_id"]) or {}).get("face", ""),
         }
         for p in PRESET_ROOMS
     ]

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "B站实时翻译 (直播/视频)",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "本地 faster-whisper/kotoba 语音识别 + DeepSeek 翻译，实时翻译 B 站日本 VTuber 直播与视频字幕",
   "minimum_chrome_version": "116",
   "permissions": [
