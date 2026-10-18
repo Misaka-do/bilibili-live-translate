@@ -98,9 +98,9 @@ function connectWS(url) {
   }
   ws.binaryType = 'arraybuffer';
   ws.onopen = () => {
-    // 告诉本地服务在看哪个直播间（用于加载对应主播画像 + 落盘）
+    // 告诉本地服务当前来源（直播房间号 / 视频 BV 号 / 番剧号），用于落盘 + 加载主播画像
     if (roomId) {
-      ws.send(JSON.stringify({ type: 'setRoom', roomId }));
+      ws.send(JSON.stringify({ type: 'setSource', source: roomId }));
     }
     // 把 DeepSeek API Key 交给本地服务，由服务端直接调用 DeepSeek 翻译
     if (apiKey) {

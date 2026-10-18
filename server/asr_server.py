@@ -386,9 +386,9 @@ async def handle_segment(ws, seg, api_key, room_id, session_id, uname, seg_seq):
 
     print(f"[ASR] {text}", flush=True)
 
-    # 截取音频落盘（只存有实际识别结果的段，避免堆噪声）
+    # 截取音频落盘（只存有实际识别结果的段；直播/视频/番剧都记录，供第三方 AI 分析）
     audio_file = None
-    if room_id is not None:
+    if room_id:
         audio_file = streamer_profile.save_audio(room_id, session_id, seg_seq, seg)
 
     translated = ""
@@ -404,8 +404,8 @@ async def handle_segment(ws, seg, api_key, room_id, session_id, uname, seg_seq):
                 translated = f"[翻译失败: {e}]"
                 print(f"[tr error] {e}", flush=True)
 
-    # 落盘：原文 + 译文 + 音频引用（供后续喂 AI 做主播分析）
-    if room_id is not None:
+    # 落盘：原文 + 译文 + 音频引用（直播房间号 / 视频 BV 号 / 番剧号，供后续喂 AI 做主播分析）
+    if room_id:
         streamer_profile.save_transcript(
             room_id, session_id, uname, text, translated, audio_file
         )
@@ -478,10 +478,18 @@ async def handler(ws):
                     api_key = (data.get("apiKey") or "").strip()
                     print("[setKey]", "ok" if api_key else "(empty)", flush=True)
                 elif data.get("type") == "setRoom":
+                    # 兼容旧协议：只传直播间号
                     room_id = str(data.get("roomId") or "").strip() or None
                     profile = streamer_profile.load_profile(room_id) if room_id else None
                     uname = (profile or {}).get("name", "")
                     print(f"[setRoom] {room_id} ({uname})", flush=True)
+                elif data.get("type") == "setSource":
+                    # 通用来源：直播房间号 / 视频 BV 号 / 番剧号，用于落盘 + 画像
+                    room_id = str(data.get("source") or "").strip() or None
+                    # 只有直播房间号才能匹配到主播画像；视频/番剧走基础提示词
+                    profile = streamer_profile.load_profile(room_id) if room_id else None
+                    uname = (profile or {}).get("name", "")
+                    print(f"[setSource] {room_id} ({uname})", flush=True)
     except websockets.exceptions.ConnectionClosed:
         pass
     finally:

@@ -4,6 +4,17 @@
 
 格式基于[约定式提交](https://www.conventionalcommits.org/zh-hans/)（feat / fix / docs / refactor / chore）。
 
+## [2.3.0] - 2026-10-18
+
+### 新增
+- **视频/番剧也记录原文+译文+音频**：之前只有直播（Web 端）落盘，现在浏览器插件看视频、番剧也会记录日语原文、译文、源音频，供第三方 AI 分析形成主播画像。
+- 落盘目录按来源区分：直播 `logs/room_<房间号>/`、视频 `logs/video_<BV号>/`、番剧 `logs/bangumi_<ep号>/`。
+- transcript.jsonl 新增 `source` 和 `source_kind` 字段。
+
+### 变更
+- 插件端 `extractRoomId` 改为 `extractSourceId`，支持识别直播房间号、视频 BV 号、番剧 ep/ss 号。
+- 服务端新增 `setSource` 消息（兼容旧 `setRoom`）。
+
 ## [2.2.0] - 2026-10-18
 
 ### 新增

@@ -192,16 +192,43 @@ def build_prompt(room_id):
     return result
 
 
-def _room_dir(room_id):
-    return os.path.join(LOGS_DIR, f"room_{_norm_room_id(room_id)}")
+def _source_kind(source):
+    """判断来源类型：live（直播房间号）| video（BV号）| bangumi（番剧 ep/ss）。"""
+    s = str(source)
+    if s.startswith("BV"):
+        return "video"
+    if s.startswith(("ep", "ss", "EP", "SS")):
+        return "bangumi"
+    return "live"
+
+
+def _source_dir(source):
+    """根据来源标识生成日志目录名（视频/番剧/直播都能归拢落盘）。
+
+    - 直播房间号（纯数字）→ logs/room_<id>
+    - 视频 BV 号            → logs/video_<BV号>
+    - 番剧 ep/ss            → logs/bangumi_<ep号>
+    """
+    s = str(source)
+    kind = _source_kind(s)
+    if kind == "video":
+        key = f"video_{s}"
+    elif kind == "bangumi":
+        key = f"bangumi_{s}"
+    else:
+        key = f"room_{s}"
+    return os.path.join(LOGS_DIR, key)
 
 
 def _norm_room_id(room_id):
-    """把 room_id 归一化成 int（web 服务传 int、插件传 str，统一后便于后续 AI 按房间聚合）。"""
-    try:
-        return int(room_id)
-    except (TypeError, ValueError):
-        return room_id
+    """把来源标识归一化：直播房间号转 int，视频 BV 号/番剧号保持原字符串。"""
+    s = str(room_id)
+    if _source_kind(s) == "live":
+        try:
+            return int(s)
+        except (TypeError, ValueError):
+            return s
+    return s
 
 
 _session_counter = 0
@@ -217,10 +244,13 @@ def new_session_id():
     return time.strftime("%Y%m%d_%H%M%S") + f"_{n:04d}"
 
 
-def save_audio(room_id, session_id, seq, seg):
-    """把一段 16kHz 单声道 float32 音频存成 WAV，返回相对文件名（失败返回 None）。"""
+def save_audio(source, session_id, seq, seg):
+    """把一段 16kHz 单声道 float32 音频存成 WAV，返回相对文件名（失败返回 None）。
+
+    source：来源标识（直播房间号 / 视频 BV 号 / 番剧 ep 号），决定落盘目录。
+    """
     try:
-        audio_dir = os.path.join(_room_dir(room_id), "audio")
+        audio_dir = os.path.join(_source_dir(source), "audio")
         os.makedirs(audio_dir, exist_ok=True)
         fname = f"{session_id}_{seq:05d}.wav"
         path = os.path.join(audio_dir, fname)
@@ -236,17 +266,22 @@ def save_audio(room_id, session_id, seq, seg):
         return None
 
 
-def save_transcript(room_id, session_id, uname, original, translated, audio_file=None):
-    """追加一条字幕日志到 logs/room_<id>/transcript.jsonl。"""
+def save_transcript(source, session_id, uname, original, translated, audio_file=None):
+    """追加一条字幕日志到 logs/<来源目录>/transcript.jsonl。
+
+    直播/视频/番剧统一落盘，供第三方 AI 分析形成主播画像。
+    """
     try:
-        d = _room_dir(room_id)
+        d = _source_dir(source)
         os.makedirs(d, exist_ok=True)
         path = os.path.join(d, "transcript.jsonl")
         line = json.dumps(
             {
                 "time": time.strftime("%Y-%m-%d %H:%M:%S"),
                 "session": session_id,
-                "room_id": _norm_room_id(room_id),
+                "source": str(source),
+                "source_kind": _source_kind(source),
+                "room_id": _norm_room_id(source),
                 "uname": uname or "",
                 "original": original,
                 "translated": translated,

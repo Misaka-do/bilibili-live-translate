@@ -11,10 +11,19 @@ function isBilibili(url) {
   );
 }
 
-// 从直播页 URL 提取直播间号；视频页/番剧页返回 null（走基础提示词）
-function extractRoomId(url) {
-  const m = /live\.bilibili\.com\/(?:blanc\/)?(\d+)/.exec(url || '');
-  return m ? m[1] : null;
+// 从 URL 提取「来源标识」：直播→房间号，视频→BV号，番剧→ep/ss号。识别不出返回 null。
+function extractSourceId(url) {
+  if (!url) return null;
+  // 直播：live.bilibili.com/22748536
+  let m = /live\.bilibili\.com\/(?:blanc\/)?(\d+)/.exec(url);
+  if (m) return { kind: 'live', id: m[1] };
+  // 视频：www.bilibili.com/video/BV1xxxxx
+  m = /www\.bilibili\.com\/video\/(BV[0-9A-Za-z]+)/.exec(url);
+  if (m) return { kind: 'video', id: m[1] };
+  // 番剧：www.bilibili.com/bangumi/play/ep123 或 ss123
+  m = /www\.bilibili\.com\/bangumi\/play\/((?:ep|ss)\d+)/.exec(url);
+  if (m) return { kind: 'bangumi', id: m[1] };
+  return null;
 }
 
 // 采集中的标签页发生「真实」导航（URL 变了）时自动重启采集。
@@ -131,7 +140,8 @@ async function startCapture(tabId) {
   } catch (e) {
     lastCapturedUrl = null;
   }
-  const roomId = extractRoomId(tabUrl);
+  const source = extractSourceId(tabUrl);
+  const sourceId = source ? source.id : null;
 
   await sendToOffscreen({
     type: 'start',
@@ -139,7 +149,7 @@ async function startCapture(tabId) {
     serverUrl: serverUrl || 'ws://127.0.0.1:8765',
     apiKey,
     targetTabId: tabId,
-    roomId
+    roomId: sourceId
   });
 
   capturingTabId = tabId;
