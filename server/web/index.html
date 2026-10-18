@@ -50,9 +50,6 @@
   #settings { display: none; flex: none; padding: 12px 14px; background: var(--panel2);
     border-bottom: 1px solid var(--border); }
   #settings.open { display: block; }
-  #settings .qrbox { text-align: center; padding: 4px 0 10px; }
-  #settings .qrbox img { width: 168px; height: 168px; background: #fff; border-radius: 10px; padding: 6px; }
-  #settings .qrbox .hint { margin-top: 6px; }
   #settings label { display: block; font-size: 12px; color: var(--text-dim); margin: 8px 0 4px; }
   #settings input, #settings select { width: 100%; background: var(--bg); border: 1px solid var(--border);
     color: var(--text); border-radius: 8px; padding: 10px 12px; font-size: 14px; }
@@ -108,10 +105,6 @@
   </header>
 
   <div id="settings">
-    <div class="qrbox" id="qrbox" style="display:none;">
-      <img id="qrImg" src="/qr.svg" alt="扫码打开">
-      <div class="hint">手机扫此码直接打开本页（需与电脑同一 Wi-Fi）</div>
-    </div>
 
     <label>当前主播</label>
     <div class="anchor-row">
@@ -316,8 +309,6 @@
     const title = s.title || '暂无直播间信息';
     titleLine.textContent = (name ? name + ' · ' : '') + title;
     setAvatar(avatar, s.face || (presets.find((p) => Number(p.room_id) === Number(s.room_id)) || {}).face || '');
-
-    if (s.has_qr) $('qrbox').style.display = 'block';
 
     if (s.live && !s.has_key) emptyText.innerHTML = '主播已开播，但还没填 DeepSeek API Key<br>点右上角「设置」填入后即可显示翻译';
     else if (s.live) emptyText.innerHTML = '主播已开播，等待说话…';

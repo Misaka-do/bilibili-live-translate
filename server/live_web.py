@@ -257,7 +257,6 @@ def status_message():
         "device": device_name,
         "capturing": capture_active,
         "lan_url": lan_url,
-        "has_qr": bool(_qr_svg),
     }
 
 
@@ -487,29 +486,7 @@ async def monitor_loop(loop):
 # HTTP / WebSocket 服务
 # --------------------------------------------------------------------------- #
 _index_html = b""
-_qr_svg = b""
 lan_url = "http://127.0.0.1:8000"
-
-
-def build_qr(url):
-    """生成手机访问地址的二维码 SVG（可选依赖 qrcode，缺失则跳过）。"""
-    global _qr_svg
-    try:
-        import io
-        import qrcode
-        import qrcode.image.svg
-
-        qr = qrcode.QRCode(border=2)
-        qr.add_data(url)
-        qr.make(fit=True)
-        img = qr.make_image(image_factory=qrcode.image.svg.SvgImage)
-        buf = io.BytesIO()
-        img.save(buf)
-        _qr_svg = buf.getvalue()
-        print("[qr] 已生成手机扫码图", flush=True)
-    except Exception as e:  # noqa: BLE001
-        _qr_svg = b""
-        print(f"[qr] 二维码生成失败（已跳过）：{e}", flush=True)
 
 
 def load_index_html():
@@ -552,13 +529,6 @@ def process_request(connection, request):
             "OK",
             Headers({"Content-Type": "application/json; charset=utf-8"}),
             body,
-        )
-    if path == "/qr.svg" and _qr_svg:
-        return Response(
-            200,
-            "OK",
-            Headers({"Content-Type": "image/svg+xml", "Cache-Control": "no-cache"}),
-            _qr_svg,
         )
     return Response(
         404,
@@ -681,7 +651,6 @@ async def run_web(args):
     ):
         lan = _lan_ip()
         lan_url = f"http://{lan}:{args.port}/"
-        build_qr(lan_url)
         print("=" * 60, flush=True)
         print(f"[web] listening http://{args.host}:{args.port}", flush=True)
         print(f"  电脑本机访问：http://127.0.0.1:{args.port}", flush=True)

@@ -4,6 +4,11 @@
 
 格式基于[约定式提交](https://www.conventionalcommits.org/zh-hans/)（feat / fix / docs / refactor / chore）。
 
+## [2.1.0] - 2026-10-18
+
+### 移除
+- **移除 Web 端二维码**：手机端网页不再显示扫码二维码（无必要），删除相关代码与 `qrcode` 依赖。
+
 ## [2.0.0] - 2026-10-18
 
 ### 重大变更
