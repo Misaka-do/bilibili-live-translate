@@ -1,0 +1,40 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# 虚拟环境（约 3.6GB，用户自己按 requirements.txt 装）
+venv/
+.venv/
+env/
+
+# ---- 模型文件（体积巨大，用户自行下载，见 README）----
+models/
+*.bin
+*.safetensors
+*.onnx
+*.jit
+*.pt
+*.pth
+*.ckpt
+
+# ---- 敏感信息 / 本地数据 ----
+config.json
+config.local.json
+profiles/
+logs/
+*.log
+
+# ---- 临时 / 杂项 ----
+.tmp/
+.DS_Store
+Thumbs.db
+*.bak
+*.tmp
+__MACOSX/
+
+# ---- 参考项目源码（他人版权，不入库）----
+_ref_LiveTranslate/

@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0f1115">
+<title>直播实时翻译</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel2: #1e222b;
+    --border: #2a2f3a;
+    --text: #e8eaf0;
+    --text-dim: #8a93a5;
+    --accent: #4ec9b0;
+    --live: #ff5d5d;
+    --off: #7a8294;
+    --orig: #9aa4b8;
+    --orig-fs: 13px;
+    --trans-fs: 17px;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+    height: 100%; }
+  body { display: flex; flex-direction: column; height: 100dvh; }
+
+  header {
+    flex: none; padding: calc(env(safe-area-inset-top, 0px) + 10px) 12px 10px;
+    background: var(--panel); border-bottom: 1px solid var(--border);
+  }
+  .row { display: flex; align-items: center; gap: 10px; }
+  .avatar { width: 30px; height: 30px; border-radius: 50%; object-fit: cover;
+    border: 1px solid var(--border); flex: none; background: var(--panel2); }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--off); flex: none; }
+  .dot.live { background: var(--live); box-shadow: 0 0 8px var(--live); animation: pulse 1.2s infinite; }
+  @keyframes pulse { 50% { opacity: .55; } }
+  .status-text { font-size: 15px; font-weight: 600; white-space: nowrap; }
+  .title { font-size: 13px; color: var(--text-dim); margin-top: 4px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .meta { margin-left: auto; display: flex; align-items: center; gap: 6px; flex: none; }
+  .btn { background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 8px; padding: 7px 11px; font-size: 13px; cursor: pointer; line-height: 1; }
+  .btn:active { background: var(--border); }
+  .badge { font-size: 11px; color: var(--text-dim); background: var(--panel2);
+    border: 1px solid var(--border); padding: 3px 8px; border-radius: 20px; white-space: nowrap; }
+
+  /* 设置面板 */
+  #settings { display: none; flex: none; padding: 12px 14px; background: var(--panel2);
+    border-bottom: 1px solid var(--border); }
+  #settings.open { display: block; }
+  #settings .qrbox { text-align: center; padding: 4px 0 10px; }
+  #settings .qrbox img { width: 168px; height: 168px; background: #fff; border-radius: 10px; padding: 6px; }
+  #settings .qrbox .hint { margin-top: 6px; }
+  #settings label { display: block; font-size: 12px; color: var(--text-dim); margin: 8px 0 4px; }
+  #settings input, #settings select { width: 100%; background: var(--bg); border: 1px solid var(--border);
+    color: var(--text); border-radius: 8px; padding: 10px 12px; font-size: 14px; }
+  #settings .hint { font-size: 11px; color: var(--text-dim); margin-top: 4px; line-height: 1.5; }
+  #save { margin-top: 12px; width: 100%; background: var(--accent); color: #06251e;
+    border: none; border-radius: 8px; padding: 11px; font-size: 15px; font-weight: 700; cursor: pointer; }
+
+  /* 主播选择行 */
+  .anchor-row { display: flex; align-items: center; gap: 10px; background: var(--bg);
+    border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; margin-top: 2px; }
+  .avatar-lg { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; flex: none; background: var(--panel2); }
+  .anchor-row .nm { font-size: 15px; font-weight: 600; }
+  .anchor-row .rm { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+
+  /* 字幕区 */
+  main { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 10px 12px 40px; }
+  .sub { margin-bottom: 14px; animation: fadein .25s ease; }
+  @keyframes fadein { from { opacity: 0; transform: translateY(4px); } }
+  .sub .orig { font-size: var(--orig-fs); color: var(--orig); line-height: 1.5; }
+  .sub .trans { font-size: var(--trans-fs); color: var(--text); line-height: 1.5; margin-top: 2px; font-weight: 500; }
+  .sub .trans.pending { color: var(--text-dim); font-style: italic; }
+
+  #empty { text-align: center; color: var(--text-dim); font-size: 14px; padding: 40px 20px; line-height: 2; }
+  #empty .big { font-size: 40px; }
+
+  /* 新字幕悬浮提示 */
+  #more { position: fixed; bottom: calc(env(safe-area-inset-bottom, 0px) + 46px); left: 50%;
+    transform: translateX(-50%); background: var(--accent); color: #06251e; font-weight: 700;
+    border: none; border-radius: 20px; padding: 8px 16px; font-size: 13px; cursor: pointer;
+    box-shadow: 0 4px 14px rgba(0,0,0,.4); display: none; }
+
+  footer { flex: none; padding: 6px 12px calc(env(safe-area-inset-bottom, 0px) + 8px);
+    font-size: 11px; color: var(--text-dim); text-align: center; border-top: 1px solid var(--border); background: var(--panel); }
+  .conn { color: var(--accent); }
+  .conn.bad { color: var(--live); }
+</style>
+</head>
+<body>
+  <header>
+    <div class="row">
+      <img class="avatar" id="avatar" alt="" style="display:none;">
+      <span class="dot" id="dot"></span>
+      <span class="status-text" id="statusText">连接中…</span>
+      <div class="meta">
+        <span class="badge" id="roomBadge">房间 …</span>
+        <button class="btn" id="fontMinus" title="缩小字号">A-</button>
+        <button class="btn" id="fontPlus" title="放大字号">A+</button>
+        <button class="btn" id="clearBtn" title="清屏">清屏</button>
+        <button class="btn" id="settingsBtn">设置</button>
+      </div>
+    </div>
+    <div class="title" id="titleLine">正在连接服务…</div>
+  </header>
+
+  <div id="settings">
+    <div class="qrbox" id="qrbox" style="display:none;">
+      <img id="qrImg" src="/qr.svg" alt="扫码打开">
+      <div class="hint">手机扫此码直接打开本页（需与电脑同一 Wi-Fi）</div>
+    </div>
+
+    <label>当前主播</label>
+    <div class="anchor-row">
+      <img class="avatar-lg" id="settingsAvatar" alt="">
+      <div style="flex:1;min-width:0;">
+        <div class="nm" id="settingsName">—</div>
+        <div class="rm" id="settingsRoom">房间 —</div>
+      </div>
+    </div>
+
+    <label>选择直播间</label>
+    <select id="roomSelect"></select>
+
+    <label>房间号（自定义）</label>
+    <input id="roomId" type="text" inputmode="numeric" placeholder="输入房间号，如 12345678">
+    <div class="hint">在下拉里选预设主播，或直接输入任意房间号。</div>
+
+    <label>DeepSeek API Key（用于翻译）</label>
+    <input id="apiKey" type="password" placeholder="sk-..." autocomplete="off">
+    <div class="hint">翻译由电脑后端直连 DeepSeek，key 只保存在电脑上的 config.json。留空则只显示原文。</div>
+
+    <button class="btn" id="save" style="background:var(--accent);">保存设置</button>
+  </div>
+
+  <main id="list">
+    <div id="empty">
+      <div class="big">📺</div>
+      <div id="emptyText">正在监测直播间，等主播开播后<br>这里会实时显示识别 + 翻译字幕</div>
+    </div>
+  </main>
+
+  <button id="more">↓ 有新字幕</button>
+  <footer><span id="conn" class="conn">●</span> <span id="connText">连接中…</span></footer>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const list = $('list'), empty = $('empty'), emptyText = $('emptyText');
+  const dot = $('dot'), statusText = $('statusText'), titleLine = $('titleLine'), roomBadge = $('roomBadge');
+  const avatar = $('avatar'), settingsAvatar = $('settingsAvatar');
+  const settingsName = $('settingsName'), settingsRoom = $('settingsRoom');
+  const roomSelect = $('roomSelect'), roomId = $('roomId');
+  const conn = $('conn'), connText = $('connText');
+  const moreBtn = $('more');
+
+  let ws = null;
+  let lastId = -1;
+  let lastSub = null;
+  let pendingNew = 0;
+  let atBottom = true;
+  let roomPrefilled = false;
+  let presets = [];
+  let currentRoom = null;
+
+  function setConn(ok, text) {
+    conn.className = ok ? 'conn' : 'conn bad';
+    connText.textContent = text;
+  }
+  function setAvatar(img, url) {
+    if (url) { img.src = url; img.style.display = ''; }
+    else img.style.display = 'none';
+  }
+
+  // 字号
+  let fs = 17;
+  function applyFont() {
+    document.documentElement.style.setProperty('--trans-fs', fs + 'px');
+    document.documentElement.style.setProperty('--orig-fs', Math.max(11, fs - 4) + 'px');
+  }
+  $('fontPlus').onclick = () => { fs = Math.min(30, fs + 2); applyFont(); };
+  $('fontMinus').onclick = () => { fs = Math.max(13, fs - 2); applyFont(); };
+
+  function buildSubDiv(msg) {
+    const div = document.createElement('div');
+    div.className = 'sub';
+    div.dataset.id = msg.id;
+    const o = document.createElement('div'); o.className = 'orig'; o.textContent = msg.original || '';
+    const t = document.createElement('div'); t.className = 'trans';
+    if (msg.done && msg.translated) t.textContent = msg.translated;
+    else { t.textContent = '…'; t.className = 'trans pending'; }
+    div.appendChild(o); div.appendChild(t);
+    return { div, tEl: t };
+  }
+  function appendSub(msg) {
+    const { div, tEl } = buildSubDiv(msg);
+    list.appendChild(div);
+    lastSub = { el: div, tEl };
+    trim();
+    afterAdd();
+  }
+  function updateSub(msg) {
+    if (!lastSub || String(lastSub.el.dataset.id) !== String(msg.id)) { appendSub(msg); return; }
+    if (msg.done && msg.translated) {
+      lastSub.tEl.textContent = msg.translated;
+      lastSub.tEl.className = 'trans';
+    }
+  }
+  function onAsr(msg) {
+    if (empty) empty.remove();
+    if (msg.id === lastId) updateSub(msg);
+    else { lastId = msg.id; appendSub(msg); }
+  }
+  function onHistory(items) {
+    // 断线重连 / 切后台再回来：回放历史字幕，补上错过的那段时间
+    list.querySelectorAll('.sub').forEach((n) => n.remove());
+    lastId = -1; lastSub = null;
+    const arr = Array.isArray(items) ? items : [];
+    if (!arr.length) return;
+    if (empty) empty.remove();
+    arr.forEach((it) => {
+      const { div, tEl } = buildSubDiv(it);
+      list.appendChild(div);
+      lastSub = { el: div, tEl };
+      lastId = it.id;
+    });
+    trim();
+    pendingNew = 0; moreBtn.style.display = 'none';
+    scrollBottom();
+  }
+  function trim() {
+    while (list.children.length > 80) list.removeChild(list.firstChild);
+  }
+  function afterAdd() {
+    if (atBottom) scrollBottom();
+    else { pendingNew++; moreBtn.textContent = '↓ ' + pendingNew + ' 条新字幕'; moreBtn.style.display = 'block'; }
+  }
+  function scrollBottom() {
+    list.scrollTop = list.scrollHeight;
+    pendingNew = 0; moreBtn.style.display = 'none'; atBottom = true;
+  }
+  list.addEventListener('scroll', () => {
+    const nearBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 80;
+    atBottom = nearBottom;
+    if (nearBottom) { pendingNew = 0; moreBtn.style.display = 'none'; }
+  });
+  moreBtn.onclick = scrollBottom;
+  $('clearBtn').onclick = () => {
+    list.querySelectorAll('.sub').forEach((n) => n.remove());
+    lastId = -1; lastSub = null; pendingNew = 0; moreBtn.style.display = 'none';
+  };
+
+  // 房间下拉
+  function renderPresets() {
+    roomSelect.innerHTML = '';
+    presets.forEach((p) => {
+      const opt = document.createElement('option');
+      opt.value = String(p.room_id);
+      opt.textContent = p.name + ' (' + p.room_id + ')';
+      roomSelect.appendChild(opt);
+    });
+    const custom = document.createElement('option');
+    custom.value = 'custom';
+    custom.textContent = '自定义房间号…';
+    roomSelect.appendChild(custom);
+  }
+  function selectRoomInDropdown(rid) {
+    const v = String(rid);
+    const found = Array.from(roomSelect.options).some((o) => o.value === v);
+    roomSelect.value = found ? v : 'custom';
+  }
+  roomSelect.onchange = () => {
+    if (roomSelect.value !== 'custom') {
+      roomId.value = roomSelect.value;
+      updateAnchorPreview(Number(roomSelect.value));
+    } else {
+      roomId.focus();
+    }
+  };
+  function updateAnchorPreview(rid) {
+    const p = presets.find((x) => Number(x.room_id) === Number(rid));
+    if (p) {
+      settingsName.textContent = p.name;
+      settingsRoom.textContent = '房间 ' + p.room_id;
+      setAvatar(settingsAvatar, p.face);
+    } else {
+      settingsName.textContent = '自定义主播';
+      settingsRoom.textContent = '房间 ' + rid;
+      setAvatar(settingsAvatar, '');
+    }
+  }
+
+  function onStatus(s) {
+    currentRoom = s.room_id;
+    dot.className = s.live ? 'dot live' : 'dot';
+    if (s.live) statusText.textContent = '直播中';
+    else if (s.capturing) statusText.textContent = '抓流中…';
+    else if (!s.model_ready) statusText.textContent = '模型加载中…';
+    else statusText.textContent = '未开播（监测中）';
+
+    roomBadge.textContent = '房间 ' + (s.room_id ?? '');
+    if (!roomPrefilled && s.room_id) { roomId.value = s.room_id; roomPrefilled = true; }
+
+    // 预设下拉（首次或变化时刷新）
+    if (Array.isArray(s.presets) && JSON.stringify(s.presets) !== JSON.stringify(presets)) {
+      presets = s.presets;
+      renderPresets();
+    }
+    if (s.room_id != null) selectRoomInDropdown(s.room_id);
+    updateAnchorPreview(s.room_id);
+
+    const name = s.uname || (presets.find((p) => Number(p.room_id) === Number(s.room_id)) || {}).name || '';
+    const title = s.title || '暂无直播间信息';
+    titleLine.textContent = (name ? name + ' · ' : '') + title;
+    setAvatar(avatar, s.face || (presets.find((p) => Number(p.room_id) === Number(s.room_id)) || {}).face || '');
+
+    if (s.has_qr) $('qrbox').style.display = 'block';
+
+    if (s.live && !s.has_key) emptyText.innerHTML = '主播已开播，但还没填 DeepSeek API Key<br>点右上角「设置」填入后即可显示翻译';
+    else if (s.live) emptyText.innerHTML = '主播已开播，等待说话…';
+    else if (!s.model_ready) emptyText.innerHTML = '正在加载识别模型（首次启动较慢）…';
+    else emptyText.innerHTML = '正在监测直播间，等主播开播后<br>这里会实时显示识别 + 翻译字幕';
+  }
+
+  function connect() {
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+    const proto = location.protocol === 'https:' ? 'wss://' : 'ws://';
+    ws = new WebSocket(proto + location.host + '/ws');
+    ws.onopen = () => setConn(true, '已连接');
+    ws.onclose = () => { setConn(false, '已断开，重连中…'); setTimeout(connect, 2000); };
+    ws.onerror = () => {};
+    ws.onmessage = (ev) => {
+      let d; try { d = JSON.parse(ev.data); } catch (e) { return; }
+      if (d.type === 'status') onStatus(d);
+      else if (d.type === 'history') onHistory(d.items);
+      else if (d.type === 'asr' && d.original) onAsr(d);
+    };
+  }
+  // 手机切后台再回来：立即检查连接，断了就马上重连（不必等 onclose 的定时器）
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && (!ws || ws.readyState !== WebSocket.OPEN)) connect();
+  });
+
+  $('settingsBtn').onclick = () => {
+    const s = $('settings');
+    s.classList.toggle('open');
+    if (s.classList.contains('open')) $('apiKey').value = '';  // 不显示已存 key
+  };
+  $('save').onclick = () => {
+    const key = $('apiKey').value.trim();
+    const room = roomId.value.trim();
+    if (key) ws.send(JSON.stringify({ type: 'setKey', apiKey: key }));
+    if (room && /^\d+$/.test(room)) ws.send(JSON.stringify({ type: 'setRoom', roomId: room }));
+    $('settings').classList.remove('open');
+    $('apiKey').value = '';
+  };
+
+  applyFont();
+  connect();
+})();
+</script>
+</body>
+</html>

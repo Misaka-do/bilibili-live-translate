@@ -1,0 +1,123 @@
+#live-translate-overlay {
+  z-index: 999999;
+  pointer-events: none;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  box-sizing: border-box;
+  /* 固定默认尺寸（右下角把手可拖拽调整） */
+  width: 460px;
+  height: 240px;
+}
+
+#live-translate-overlay .lt-box {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  border-radius: 14px;
+  /* 毛玻璃 */
+  background: linear-gradient(180deg, rgba(18, 19, 28, 0.62), rgba(18, 19, 28, 0.42));
+  backdrop-filter: blur(16px) saturate(150%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+  pointer-events: auto;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* 头部：拖动移动的把手 */
+#live-translate-overlay .lt-header {
+  flex: none;
+  cursor: grab;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.42);
+  letter-spacing: 1px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  text-align: left;
+}
+#live-translate-overlay .lt-header:active {
+  cursor: grabbing;
+}
+
+/* 字幕历史列表（滚轮回看） */
+#live-translate-overlay .lt-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 14px;
+  box-sizing: border-box;
+  /* 用块级布局而非 flex 纵向：flex 纵向 + overflow 滚动到底时有兼容问题 */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+}
+#live-translate-overlay .lt-list::-webkit-scrollbar {
+  width: 6px;
+}
+#live-translate-overlay .lt-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 3px;
+}
+
+#live-translate-overlay .lt-item {
+  margin-bottom: 9px;
+}
+#live-translate-overlay .lt-item:last-child {
+  margin-bottom: 0;
+}
+
+#live-translate-overlay .lt-item-orig {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.50);
+  line-height: 1.4;
+  letter-spacing: 0.3px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin-bottom: 2px;
+}
+
+#live-translate-overlay .lt-item-trans {
+  font-size: 18px;
+  font-weight: 650;
+  color: #fefefe;
+  line-height: 1.5;
+  letter-spacing: 0.2px;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+#live-translate-overlay .lt-item-trans.placeholder {
+  color: rgba(255, 255, 255, 0.38);
+}
+
+#live-translate-overlay .lt-status {
+  flex: none;
+  padding: 3px 12px 6px;
+  font-size: 11px;
+  color: rgba(126, 205, 255, 0.9);
+  line-height: 1.2;
+  text-align: center;
+  letter-spacing: 0.4px;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  min-height: 13px;
+}
+#live-translate-overlay .lt-status.show {
+  opacity: 1;
+}
+
+/* 右下角缩放把手 */
+#live-translate-overlay .lt-resizer {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+  background: linear-gradient(135deg, transparent 50%, rgba(255, 255, 255, 0.35) 50%);
+  border-bottom-right-radius: 14px;
+}

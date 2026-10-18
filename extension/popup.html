@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <h1>B站实时翻译</h1>
+
+    <div class="row">
+      <label for="apiKey">DeepSeek API Key</label>
+      <input type="password" id="apiKey" placeholder="sk-..." autocomplete="off">
+      <div class="hint" id="keyHint"></div>
+    </div>
+
+    <div class="row">
+      <label for="serverUrl">识别服务地址</label>
+      <input type="text" id="serverUrl" value="ws://127.0.0.1:8765">
+    </div>
+
+    <div class="row">
+      <button id="saveBtn">保存设置</button>
+    </div>
+
+    <hr>
+
+    <div class="row">
+      <button id="startBtn" class="primary">开始翻译</button>
+      <button id="stopBtn">停止</button>
+    </div>
+
+    <div class="status" id="status"></div>
+    <div class="version" id="version"></div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
