@@ -106,6 +106,8 @@ pip install -r requirements.txt
 
 ## 四、启动本地识别服务
 
+**统一入口**：一个脚本同时启动「插件端」和「Web 端」，底层模型只加载一次。
+
 双击运行（Windows）：
 
 ```
@@ -115,23 +117,30 @@ start_server.bat
 看到类似输出即成功：
 
 ```
-[loading] faster-whisper kotoba on cuda (float16) ...
+[loading] 加载识别模型（两端共享）...
 [loading] done
-[listening] ws://127.0.0.1:8765  (engine=whisper model=kotoba device=cuda)
+[plugin] listening ws://127.0.0.1:8765
+[web] listening http://0.0.0.0:8000
 ```
 
-- 默认地址：`ws://127.0.0.1:8765`
-- 关闭窗口即停止服务
+- **插件端** `ws://127.0.0.1:8765` —— 浏览器插件连这里（第六节）
+- **Web 端** `http://0.0.0.0:8000` —— 手机/浏览器网页看字幕（第八节）
+- 关闭窗口即停止服务（两端一起停）
 
 常用参数：
 
 | 参数 | 说明 |
 |------|------|
+| `--no-web` | 只开插件端，关掉 Web 端（纯浏览器插件用户可省资源） |
+| `--no-plugin` | 只开 Web 端，关掉插件端 |
 | `--model kotoba` | 日语专用模型（默认，需手动下载） |
 | `--model Systran/faster-whisper-large-v3` | 通用 Whisper，自动下载 |
 | `--engine sensevoice` | 切回 SenseVoice 引擎（需装 funasr） |
 | `--device cpu` / `--device cuda` | 手动指定设备 |
+| `--room 房间号` | Web 端默认监测的直播间 |
 | `--debug` | 打开诊断日志（排查音频/VAD 问题） |
+
+> `start_live_server.bat` 仍可用，等价于 `start_server.bat --no-plugin`（只开 Web 端，给纯手机用户）。
 
 ---
 
@@ -192,13 +201,15 @@ start_server.bat
 
 ### 启动
 
-1. 双击 `start_live_server.bat`（首次启动会加载识别模型，稍等片刻）
+1. 双击 `start_server.bat`（统一入口，两端都开）；只想开 Web 端可双击 `start_live_server.bat`（等价 `--no-plugin`）。首次启动会加载识别模型，稍等片刻
 2. 控制台会打印两个地址：
    - 电脑本机：`http://127.0.0.1:8000`
    - 手机访问：`http://<局域网IP>:8000`
 3. **手机和电脑连同一个 Wi-Fi**。电脑上打开 `http://127.0.0.1:8000`，点「设置」，用手机**扫页面里的二维码**即可直达
 4. 手机点右上角「设置」，填入 **DeepSeek API Key** 和直播间号，保存
 5. 等主播开播，页面会自动从「未开播」变成「直播中」，并开始滚动显示字幕
+
+> 说明：Web 端需要抓 B 站直播流，依赖 `av`（PyAV）。若只用浏览器插件，可不装，统一入口会自动跳过抓流。
 
 ### 说明
 
@@ -244,15 +255,17 @@ start_server.bat
 
 ```
 直播翻译/
-├── start_server.bat         # 一键启动识别服务
+├── start_server.bat         # 一键启动（统一入口：插件端 + Web 端）
 ├── start_server.ps1
 ├── requirements.txt         # Python 依赖清单
 ├── LICENSE                  # MIT 许可证
+├── CHANGELOG.md             # 更新日志
 ├── config.example.json      # 手机端服务配置示例（复制为 config.json 使用）
 ├── server/
-│   ├── asr_server.py        # 识别服务（WebSocket + VAD + whisper + 翻译）
+│   ├── main.py              # 【统一入口】一个进程同时开插件端(8765) + Web端(8000)
+│   ├── asr_server.py        # 核心库：VAD + whisper + 翻译 + 插件端协议
 │   ├── streamer_profile.py  # 主播画像 + 提示词拼接 + 日志落盘
-│   ├── live_web.py          # 【手机端】监测直播间 + 抓流 + 识别翻译 + Web 服务
+│   ├── live_web.py          # Web 端模块：监测直播间 + 抓流 + 网页字幕
 │   ├── web/index.html       # 【手机端】字幕页面（手机浏览器打开）
 │   ├── test_asr.py          # 离线测试：识别单个音频文件
 │   ├── test_whisper.py      # 离线测试 faster-whisper
@@ -264,9 +277,8 @@ start_server.bat
 │   ├── content.js           # 字幕叠加
 │   ├── content.css          # 毛玻璃字幕样式
 │   └── popup.html / popup.js / popup.css
-├── start_live_server.bat    # 一键启动手机端 Web 服务
-├── add_firewall_rule.bat    # 放行 8000 端口（手机端需要）
-└── generate_icons.py        # 生成插件图标（一次性脚本）
+├── start_live_server.bat    # 等价 start_server.bat --no-plugin（只开 Web 端）
+└── add_firewall_rule.bat    # 放行 8000 端口（手机端需要）
 
 模型缓存（首次运行自动生成 / 手动下载）：
   %LOCALAPPDATA%\LiveTranslate\models          # kotoba / VAD

@@ -1,6 +1,9 @@
 @echo off
 cd /d "%~dp0"
-echo [Starting local ASR + DeepSeek translation server]
+echo [Starting Bilibili live translate unified server]
+echo   plugin: ws://127.0.0.1:8765  (browser extension)
+echo   web   : http://0.0.0.0:8000  (phone subtitle page)
 echo Model cache: %LOCALAPPDATA%\LiveTranslate
-"%~dp0venv\Scripts\python.exe" "%~dp0server\asr_server.py" %*
+echo.
+"%~dp0venv\Scripts\python.exe" "%~dp0server\main.py" %*
 pause

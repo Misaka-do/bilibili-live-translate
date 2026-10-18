@@ -35,7 +35,6 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)  # 让 import asr_server 生效（不管从哪个目录启动）
 
-import av  # noqa: E402
 import websockets  # noqa: E402
 from websockets.asyncio.server import serve  # noqa: E402
 from websockets.http11 import Response  # noqa: E402
@@ -43,6 +42,10 @@ from websockets.datastructures import Headers  # noqa: E402
 
 import asr_server  # noqa: E402
 import streamer_profile  # noqa: E402
+
+# av（PyAV）只在「抓直播流」时才需要，属于可选依赖。
+# 这里不顶层导入，避免只用插件端的用户因没装 av 而无法启动统一入口。
+# 真正用到的地方（capture_thread / 开播抓流）会按需 import。
 
 # --------------------------------------------------------------------------- #
 # 常量
@@ -368,6 +371,11 @@ def capture_thread(room_id, loop, stop_event):
     容器始终由本线程在 finally 里关闭，避免 ffmpeg 被别的线程 close 导致进程崩溃。
     """
     global _current_container
+    try:
+        import av  # noqa: F401  惰性导入：抓流时才需要 PyAV
+    except ImportError as e:
+        print("[capture] 缺少 PyAV（av），无法抓流。请先安装：pip install av", flush=True)
+        raise e
     vad = asr_server.VadState()
     vad.threshold = vad_threshold
     print("[capture] 开始抓取直播音频", flush=True)
@@ -619,13 +627,14 @@ def _lan_ip():
         s.close()
 
 
-async def _load_model_bg(device, engine, model):
-    global model_ready
-    print(f"[loading] {engine} {model} on {device} ...", flush=True)
-    await asyncio.to_thread(asr_server.load_model, device, engine, model)
+def set_model_ready(engine, model, device):
+    """由统一入口（main.py）在模型加载完成后调用，标记模型可用并广播状态。"""
+    global model_ready, engine_name, model_name, device_name
+    engine_name = engine
+    model_name = model
+    device_name = device
     model_ready = True
-    print("[loading] done", flush=True)
-    await broadcast(status_message())
+    print(f"[model] ready: {engine} {model} on {device}", flush=True)
 
 
 async def _load_presets_bg():
@@ -647,20 +656,17 @@ def parse_args():
     return p.parse_args()
 
 
-async def main():
-    global engine_name, model_name, device_name, vad_threshold, lan_url, POLL_INTERVAL
-    args = parse_args()
+async def run_web(args):
+    """启动 Web 端（手机网页字幕）。模型需由调用方先加载，再调 set_model_ready() 标记就绪。
+
+    args 需含：host / port / room / vad_threshold / poll_interval / engine / model。
+    """
+    global vad_threshold, lan_url, POLL_INTERVAL
     load_config(args)
     save_config()  # 启动即生成 config.json，方便用户直接编辑文件填 API Key
 
-    engine_name = args.engine
-    model_name = args.model
     vad_threshold = args.vad_threshold
     POLL_INTERVAL = max(3, args.poll_interval)
-    device = args.device
-    if device == "auto":
-        device = asr_server._detect_device(args.engine)
-    device_name = device
 
     load_index_html()
     loop = asyncio.get_running_loop()
@@ -677,11 +683,10 @@ async def main():
         lan_url = f"http://{lan}:{args.port}/"
         build_qr(lan_url)
         print("=" * 60, flush=True)
-        print(f"[listening] http://{args.host}:{args.port}", flush=True)
+        print(f"[web] listening http://{args.host}:{args.port}", flush=True)
         print(f"  电脑本机访问：http://127.0.0.1:{args.port}", flush=True)
         print(f"  手机访问：    http://{lan}:{args.port}", flush=True)
         print(f"  监测直播间：  {config['room_id']}", flush=True)
-        print(f"  识别引擎：    {args.engine} / {args.model} / {device}", flush=True)
         print("  手机浏览器打开上面地址即可看实时字幕；在页面设置里填 DeepSeek API Key。", flush=True)
         print("  提示：若手机打不开，请在 Windows 防火墙放行本端口（或临时关防火墙）。", flush=True)
         print(f"  字幕日志：    {streamer_profile.LOGS_DIR}", flush=True)
@@ -689,10 +694,21 @@ async def main():
 
         asyncio.create_task(monitor_loop(loop))
         asyncio.create_task(segment_worker())
-        asyncio.create_task(_load_model_bg(device, args.engine, args.model))
         asyncio.create_task(_load_presets_bg())
 
         await asyncio.Future()
+
+
+async def main():
+    """独立运行入口（向后兼容）：只跑 Web 端。统一入口请用 main.py。"""
+    args = parse_args()
+    device = args.device
+    if device == "auto":
+        device = asr_server._detect_device(args.engine)
+
+    asr_server.load_model(device, args.engine, args.model)
+    set_model_ready(args.engine, args.model, device)
+    await run_web(args)
 
 
 if __name__ == "__main__":

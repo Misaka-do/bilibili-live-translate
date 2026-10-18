@@ -511,7 +511,7 @@ def _detect_device(engine):
 
 
 def parse_args():
-    p = argparse.ArgumentParser(description="实时语音识别 + 翻译 WebSocket 服务器")
+    p = argparse.ArgumentParser(description="实时语音识别 + 翻译 WebSocket 服务器（插件端，可独立运行）")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8765)
     p.add_argument(
@@ -538,9 +538,19 @@ def parse_args():
     return p.parse_args()
 
 
-async def main():
+async def run_plugin(host="127.0.0.1", port=8765):
+    """启动插件端 WebSocket 服务（模型需先 load_model）。会一直运行直到被取消。"""
     import websockets
 
+    async with websockets.serve(
+        handler, host, port, max_size=2 ** 24, ping_interval=20
+    ):
+        print(f"[plugin] listening ws://{host}:{port}", flush=True)
+        await asyncio.Future()
+
+
+async def main():
+    """独立运行入口（向后兼容）：只跑插件端。统一入口请用 main.py。"""
     args = parse_args()
     if args.debug:
         global DEBUG_AUDIO_LOG
@@ -550,16 +560,12 @@ async def main():
         device = _detect_device(args.engine)
 
     load_model(device, args.engine, args.model)
-
-    async with websockets.serve(
-        handler, args.host, args.port, max_size=2 ** 24, ping_interval=20
-    ):
-        print(
-            f"[listening] ws://{args.host}:{args.port}  "
-            f"(engine={args.engine} model={args.model} device={device})",
-            flush=True,
-        )
-        await asyncio.Future()
+    print(
+        f"[listening] ws://{args.host}:{args.port}  "
+        f"(engine={args.engine} model={args.model} device={device})",
+        flush=True,
+    )
+    await run_plugin(args.host, args.port)
 
 
 if __name__ == "__main__":
