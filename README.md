@@ -298,9 +298,6 @@ start_server.bat
 │   ├── streamer_profile.py  # 主播画像 + 提示词拼接 + 日志落盘
 │   ├── live_web.py          # Web 端模块：监测直播间 + 抓流 + 网页字幕
 │   ├── web/index.html       # 【手机端】字幕页面（手机浏览器打开）
-│   ├── test_asr.py          # 离线测试：识别单个音频文件
-│   ├── test_whisper.py      # 离线测试 faster-whisper
-│   └── test_ws_client.py    # 测试：模拟插件把音频流发给服务
 ├── extension/               # 浏览器插件（加载这个目录）
 │   ├── manifest.json
 │   ├── background.js        # 协调 popup / offscreen / 内容脚本

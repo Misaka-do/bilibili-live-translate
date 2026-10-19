@@ -38,5 +38,12 @@ Thumbs.db
 *.tmp
 __MACOSX/
 
+# ---- 本地调试脚本（保留在用者本地，不进开源仓库）----
+# 手写的自测脚本，非 pytest 测试套件，且依赖本机模型路径
+server/test_asr.py
+server/test_whisper.py
+server/test_ws_client.py
+whisper_result.txt
+
 # ---- 参考项目源码（他人版权，不入库）----
 _ref_LiveTranslate/
