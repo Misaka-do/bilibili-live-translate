@@ -55,17 +55,29 @@
 
 ## 二、安装依赖
 
-需要 **Python 3.10+**（推荐 3.12）。
+### 需要下载的软件
+
+| 软件 | 下载地址 | 说明 |
+|------|---------|------|
+| **Python 3.10+**（推荐 3.12） | <https://www.python.org/downloads/> | 安装时**务必勾选「Add Python to PATH」** |
+| **Git**（可选，拉取代码用） | <https://git-scm.com/download/win> | 也可直接在 GitHub 点「Download ZIP」解压 |
+| **Chrome / Edge**（加载插件用） | <https://www.google.com/chrome/> 或系统自带 Edge | 一般已有 |
+
+> 国内下载 Python 慢的话，可用镜像：
+> - 华为云：<https://mirrors.huaweicloud.com/python/>
+> - 淘宝 npm 镜像（含 Python）：<https://npmmirror.com/mirrors/python/>
+
+### 安装 Python 依赖
 
 ```bash
-# 创建虚拟环境
+# 进入项目目录后，创建虚拟环境
 python -m venv venv
 
 # 激活（Windows）
 venv\Scripts\activate
 
-# 安装核心依赖
-pip install -r requirements.txt
+# 安装核心依赖（国内建议用清华镜像加速）
+pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
 > 只做翻译识别（whisper 引擎），核心依赖即可，无需安装 funasr/modelscope（那套是 SenseVoice 引擎才需要，体积大、安装慢）。
@@ -84,22 +96,39 @@ pip install -r requirements.txt
 %LOCALAPPDATA%\LiveTranslate\
 ├── models\
 │   ├── kotoba-whisper-v2.0-faster\   # 日语专用（约 1.5GB）
-│   └── silero_vad.jit                # VAD 模型（silero-vad 包自动带）
+│   └── silero_vad.jit                # VAD 模型（pip 装 silero-vad 时自动带，无需手动下载）
 └── modelscope\models\
-    └── Systran--faster-whisper-large-v3\  # 通用 Whisper（约 3GB）
+    └── Systran--faster-whisper-large-v3\  # 通用 Whisper（约 3GB，首次运行自动下载）
 ```
 
-**推荐：日语专用模型 kotoba-whisper**（精度更高，`--model kotoba` 默认）：
+### 模型一：kotoba-whisper（日语专用，推荐，`--model kotoba` 默认）
 
-1. 创建目录：`%LOCALAPPDATA%\LiveTranslate\models\kotoba-whisper-v2.0-faster\`
-2. 从 HuggingFace 下载以下 5 个文件放入该目录：
-   - `model.bin`（约 1.5GB）`https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-faster/resolve/main/model.bin`
-   - `config.json`
-   - `tokenizer.json`
-   - `vocabulary.json`
-   - `preprocessor_config.json`
+精度更高，专为日语微调。需手动下载 **5 个文件**，放入：
+`%LOCALAPPDATA%\LiveTranslate\models\kotoba-whisper-v2.0-faster\`
 
-> 没有 kotoba 时，服务会自动回退到 faster-whisper-large-v3（首次运行从 ModelScope 自动下载，约 3GB，需联网）。
+下载地址（HuggingFace 原站，若慢用下面的国内镜像）：
+
+| 文件 | 大小 | 直链 |
+|------|------|------|
+| `model.bin` | ~1.5GB | <https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-faster/resolve/main/model.bin> |
+| `config.json` | ~1KB | <https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-faster/resolve/main/config.json> |
+| `tokenizer.json` | ~2.4MB | <https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-faster/resolve/main/tokenizer.json> |
+| `vocabulary.json` | ~1MB | <https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-faster/resolve/main/vocabulary.json> |
+| `preprocessor_config.json` | ~1KB | <https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-faster/resolve/main/preprocessor_config.json> |
+
+> **国内镜像（免代理，推荐）**：把上面直链的 `huggingface.co` 换成 `hf-mirror.com` 即可，例如：
+> `https://hf-mirror.com/kotoba-tech/kotoba-whisper-v2.0-faster/resolve/main/model.bin`
+>
+> 也可用 ModelScope 下载：<https://www.modelscope.cn/models/kotoba-tech/kotoba-whisper-v2.0-faster>
+
+### 模型二：faster-whisper-large-v3（通用，兜底）
+
+**无需手动下载**——没有 kotoba 时，首次运行会自动从 ModelScope 下载（约 3GB，国内快，需联网）：
+
+- ModelScope 地址：<https://www.modelscope.cn/models/Systran/faster-whisper-large-v3>
+- HuggingFace 地址：<https://huggingface.co/Systran/faster-whisper-large-v3>
+
+### 说明
 
 > 模型必须放在**纯英文路径**（默认 `%LOCALAPPDATA%\LiveTranslate`），因为 sentencepiece 等 C++ 库
 > 在 Windows 上无法打开含中文的路径。
