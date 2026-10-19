@@ -4,6 +4,14 @@
 
 格式基于[约定式提交](https://www.conventionalcommits.org/zh-hans/)（feat / fix / docs / refactor / chore）。
 
+## [2.4.1] - 2026-10-19
+
+### 修复
+- **HTTP 请求改走系统代理**：B 站接口直连会卡死（「检测开播」长时间无响应），改为走系统代理后秒回。
+
+### 文档
+- README 补全所有软件（Python/Git/浏览器）与模型（kotoba/large-v3/silero）的下载地址，含国内镜像（清华 pip、hf-mirror、ModelScope）。
+
 ## [2.4.0] - 2026-10-19
 
 ### 新增
