@@ -42,12 +42,11 @@ BUNDLE_DIR = getattr(sys, "_MEIPASS", HERE) if _is_frozen() else HERE
 PROFILES_DIR = os.path.join(APP_ROOT, "profiles")
 LOGS_DIR = os.path.join(APP_ROOT, "logs")
 
-# 本程序的共享 HTTP 会话：显式关闭代理（trust_env=False）。
-# DeepSeek（api.deepseek.com）与 B站（api.live.bilibili.com）都是国内直连接口，
-# 不应受 Windows「系统代理」或 HTTP_PROXY 环境变量影响（否则代理软件一关就 ProxyError）。
+# 本程序的共享 HTTP 会话：默认走系统代理（trust_env 默认 True）。
+# 实测：B站接口与 DeepSeek 在当前网络环境下走代理更快更稳（直连会卡死/超时），
+# 故不再强制 trust_env=False。若用户无代理，requests 会自动直连。
 # 注意：这只是本程序自己的会话，不改动 requests 库本身。
 HTTP_SESSION = requests.Session()
-HTTP_SESSION.trust_env = False
 
 # 基础提示词：所有主播通用（规则 + B 站通用术语），不含任何主播专属词/梗。
 BASE_PROMPT = (
