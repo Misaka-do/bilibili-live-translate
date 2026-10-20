@@ -261,7 +261,20 @@ start_server.bat
 
 翻译时自动「基础提示词 + 当前主播画像」拼成最终提示词。**换主播不用改代码**，只需维护对应画像文件。
 
-画像结构示例（`profiles/<房间号>.json`）：
+### 使用现成示例
+
+仓库自带一份**真实可用的示例画像**（`profiles.example/22748536.json`，B 站主播「火羽ひのめ」），
+包含 20 条术语、3 个梗、8 组高频听错词，可直接参考或使用：
+
+```bash
+# 把示例复制到 profiles/ 即可生效（重启服务后）
+mkdir profiles
+copy profiles.example\22748536.json profiles\
+```
+
+> Web 端「选择直播间」下拉列表会自动出现该主播（详见第八节），选中即用其画像翻译。
+
+### 画像结构
 
 ```json
 {
@@ -274,11 +287,23 @@ start_server.bat
 }
 ```
 
+| 字段 | 说明 |
+|------|------|
+| `room_id` | 直播间号（必填，决定画像与哪个房间对应） |
+| `name` | 主播名（Web 端下拉列表显示用） |
+| `face` | 头像 URL（可选，Web 端显示用） |
+| `style` | 说话风格描述（可选，会注入提示词） |
+| `glossary` | 术语表：`heard`（听到的日语）→ `say`（应翻译成） |
+| `memes` | 梗/黑话说明 |
+| `asr_fixes` | 高频听错词纠正：`heard`（识别错的）→ `correct`（实际意思） |
+| `rules` | 附加规则（自由文本） |
+
 - 没有画像的主播：自动退化为只用基础提示词。
 - 画像改动后需**重启服务**生效。
 
-> **注意**：`profiles/` 目录（含主播画像、用户自定义词表）**不随仓库提供**，属于个人数据。
-> 你可以参考上面结构自己创建 `profiles/<房间号>.json`。
+> **目录约定**：
+> - `profiles.example/` —— 示例画像，随仓库公开（供参考/直接使用）
+> - `profiles/` —— 你自己的画像，**不随仓库分发**（属个人数据，已在 `.gitignore` 排除）
 
 ---
 
@@ -292,6 +317,8 @@ start_server.bat
 ├── LICENSE                  # MIT 许可证
 ├── CHANGELOG.md             # 更新日志
 ├── config.example.json      # 手机端服务配置示例（复制为 config.json 使用）
+├── profiles.example/        # 主播画像示例（复制到 profiles/ 即可用）
+│   └── 22748536.json        # 「火羽ひのめ」的真实画像（术语/梗/听错词）
 ├── server/
 │   ├── main.py              # 【统一入口】一个进程同时开插件端(8765) + Web端(8000)
 │   ├── asr_server.py        # 核心库：VAD + whisper + 翻译 + 插件端协议
