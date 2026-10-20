@@ -1,352 +1,307 @@
-# B站实时翻译（直播 + 视频）
+# B站实时翻译（直播 / 视频 / 番剧）
 
-一个「浏览器插件 + 本地语音识别服务」的实时翻译工具，用来实时翻译 B 站日本 VTuber 直播和视频。
+一个把 B 站日语直播、视频、番剧**实时翻译成中文字幕**的本地工具。
 
-> **作者**：Misaka-do　|　**AI 协作模型**：DeepSeek V4 Pro　|　**开发工具**：DeepSeek Harness
+- 🎙️ **本地语音识别**：faster-whisper（GPU 加速），日语专用模型可选
+- 🧠 **Silero VAD 切句**：神经网络判定人声，过滤背景音乐
+- 🌐 **DeepSeek 翻译**：口语化中文，带 B 站直播语境（舰长 / 小号 / SC）
+- 🪟 **双端可用**：浏览器插件（字幕叠在视频上）或手机网页（电脑抓流推字幕）
 
-- **本地语音识别**（faster-whisper / kotoba-whisper / SenseVoice）：把直播里的日语语音转成文字
-- **DeepSeek 翻译**：把日语文字翻译成简体中文（由本地服务直连调用，避开浏览器代理问题）
-- **浏览器插件**：采集标签页声音 → 送到本地识别服务 → 接收识别+翻译结果 → 叠加字幕
-- 首次使用时在插件弹窗里输入你的 **DeepSeek API Key**
+> **作者**：Misaka-do ｜ **AI 协作**：DeepSeek V4 Pro ｜ **开发工具**：DeepSeek Harness
 
-> 附：**手机端 Web 服务**（`start_live_server.bat`）——不用浏览器插件，电脑自己抓取指定直播间的音频，
-> 识别 + 翻译后把字幕推到你手机上打开的网页。详见下文「八、手机端 Web 服务」。
+---
+
+## 架构
+
+一个本地服务 + 两个入口，模型只加载一次：
 
 ```
-┌──────────────┐   WebSocket(16kHz PCM + API Key)   ┌─────────────────────┐
-│ 浏览器插件    │ ─────────────────────────────────▶ │ 本地识别服务          │
-│ (采集标签页声) │ ◀───────────────────────────────── │ asr_server.py       │
-│ (显示字幕)    │   JSON: {"original","translated"}  │ (whisper/kotoba 识别)│
-└──────────────┘                                    │ (调用 DeepSeek 翻译)  │
-                                                    └──────────┬──────────┘
-                                                               │ HTTPS（直连）
-                                                               ▼
-                                                      DeepSeek API（翻译）
+                  ┌──────────────────────────────────────┐
+                  │        本地服务  main.py             │
+┌──────────────┐  │  ┌────────────────────────────────┐  │
+│  浏览器插件   │──┼─▶│ 插件端 :8765                    │  │
+│  (采集标签页) │◀─┼──│ 收 16kHz PCM → VAD → 识别 → 翻译 │  │
+└──────────────┘  │  └────────────────────────────────┘  │
+                  │  ┌────────────────────────────────┐  │
+┌──────────────┐  │  │ Web 端 :8000                    │  │
+│   手机网页    │◀─┼──│ 抓直播流 → VAD → 识别 → 翻译     │  │
+└──────────────┘  │  └────────────────────────────────┘  │
+                  │            共享：模型 / VAD / 提示词   │
+                  └───────────────────┬──────────────────┘
+                                      │ 翻译
+                                      ▼
+                              DeepSeek API
 ```
 
 ---
 
-## 目录
+## 快速开始
 
-1. [功能特性](#一功能特性)
-2. [安装依赖](#二安装依赖)
-3. [下载模型](#三下载模型)
-4. [启动本地识别服务](#四启动本地识别服务)
-5. [安装浏览器插件](#五安装浏览器插件)
-6. [使用](#六使用)
-7. [常见问题](#七常见问题)
-8. [手机端 Web 服务](#八手机端-web-服务)
-9. [主播画像](#九主播画像)
-10. [目录结构](#十目录结构)
-11. [许可证与免责声明](#许可证与免责声明)
+### 1. 准备 Python
 
----
+下载并安装 **Python 3.12**（3.10+ 均可）：<https://www.python.org/downloads/>
 
-## 一、功能特性
+> ⚠️ 安装时**务必勾选「Add Python to PATH」**
+> 国内下载慢可用镜像：<https://mirrors.huaweicloud.com/python/>
 
-- 🎙️ **本地语音识别**：默认 faster-whisper，支持 GPU（CUDA）加速
-- 🇯🇵 **日语优化模型**：可选 kotoba-whisper（专为动漫/日本口语微调）
-- 🧠 **Silero VAD**：神经网络语音活动检测，准确切句、过滤背景音乐
-- 🌐 **DeepSeek 翻译**：口语化中文，带 B 站直播语境（舰长/小号等术语）
-- 🪟 **毛玻璃字幕**：叠加在视频上，可拖拽定位
-- 📱 **手机端**：电脑抓流 → 手机网页看字幕
-
----
-
-## 二、安装依赖
-
-### 需要下载的软件
-
-| 软件 | 下载地址 | 说明 |
-|------|---------|------|
-| **Python 3.10+**（推荐 3.12） | <https://www.python.org/downloads/> | 安装时**务必勾选「Add Python to PATH」** |
-| **Git**（可选，拉取代码用） | <https://git-scm.com/download/win> | 也可直接在 GitHub 点「Download ZIP」解压 |
-| **Chrome / Edge**（加载插件用） | <https://www.google.com/chrome/> 或系统自带 Edge | 一般已有 |
-
-> 国内下载 Python 慢的话，可用镜像：
-> - 华为云：<https://mirrors.huaweicloud.com/python/>
-> - 淘宝 npm 镜像（含 Python）：<https://npmmirror.com/mirrors/python/>
-
-### 安装 Python 依赖
+### 2. 安装依赖
 
 ```bash
-# 进入项目目录后，创建虚拟环境
+# 在项目目录下创建虚拟环境
 python -m venv venv
-
-# 激活（Windows）
 venv\Scripts\activate
 
-# 安装核心依赖（国内建议用清华镜像加速）
+# 安装依赖（国内建议加清华镜像）
 pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
-> 只做翻译识别（whisper 引擎），核心依赖即可，无需安装 funasr/modelscope（那套是 SenseVoice 引擎才需要，体积大、安装慢）。
+需要抓 B 站直播流（手机端）的话，额外装：
 
-> **GPU 加速（可选）**：faster-whisper 走 CTranslate2，CUDA 需要额外补装
-> `nvidia-cublas-cu12`，并把 `cublas64_12.dll` / `cublasLt64_12.dll` 复制到
-> `venv\Lib\site-packages\ctranslate2\` 目录。没有显卡时自动回退到 CPU（int8）。
-
----
-
-## 三、下载模型
-
-模型文件**不会随仓库提供**，请自行下载到本地。默认模型缓存目录：
-
-```
-%LOCALAPPDATA%\LiveTranslate\
-├── models\
-│   ├── kotoba-whisper-v2.0-faster\   # 日语专用（约 1.5GB）
-│   └── silero_vad.jit                # VAD 模型（pip 装 silero-vad 时自动带，无需手动下载）
-└── modelscope\models\
-    └── Systran--faster-whisper-large-v3\  # 通用 Whisper（约 3GB，首次运行自动下载）
+```bash
+pip install av -i https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
-### 模型一：kotoba-whisper（日语专用，推荐，`--model kotoba` 默认）
+### 3. 准备模型
 
-精度更高，专为日语微调。需手动下载 **5 个文件**，放入：
-`%LOCALAPPDATA%\LiveTranslate\models\kotoba-whisper-v2.0-faster\`
+**最省事**：什么都不做，首次启动会自动从国内源（ModelScope）下载通用 Whisper（约 3GB）。
 
-下载地址（HuggingFace 原站，若慢用下面的国内镜像）：
+**更准（推荐）**：手动下载日语专用模型 kotoba-whisper（约 1.5GB），详见 [模型下载](#模型下载)。
 
-| 文件 | 大小 | 直链 |
-|------|------|------|
-| `model.bin` | ~1.5GB | <https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-faster/resolve/main/model.bin> |
-| `config.json` | ~1KB | <https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-faster/resolve/main/config.json> |
-| `tokenizer.json` | ~2.4MB | <https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-faster/resolve/main/tokenizer.json> |
-| `vocabulary.json` | ~1MB | <https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-faster/resolve/main/vocabulary.json> |
-| `preprocessor_config.json` | ~1KB | <https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-faster/resolve/main/preprocessor_config.json> |
+### 4. 启动服务
 
-> **国内镜像（免代理，推荐）**：把上面直链的 `huggingface.co` 换成 `hf-mirror.com` 即可，例如：
-> `https://hf-mirror.com/kotoba-tech/kotoba-whisper-v2.0-faster/resolve/main/model.bin`
->
-> 也可用 ModelScope 下载：<https://www.modelscope.cn/models/kotoba-tech/kotoba-whisper-v2.0-faster>
-
-### 模型二：faster-whisper-large-v3（通用，兜底）
-
-**无需手动下载**——没有 kotoba 时，首次运行会自动从 ModelScope 下载（约 3GB，国内快，需联网）：
-
-- ModelScope 地址：<https://www.modelscope.cn/models/Systran/faster-whisper-large-v3>
-- HuggingFace 地址：<https://huggingface.co/Systran/faster-whisper-large-v3>
-
-### 说明
-
-> 模型必须放在**纯英文路径**（默认 `%LOCALAPPDATA%\LiveTranslate`），因为 sentencepiece 等 C++ 库
-> 在 Windows 上无法打开含中文的路径。
-
----
-
-## 四、启动本地识别服务
-
-**统一入口**：一个脚本同时启动「插件端」和「Web 端」，底层模型只加载一次。
-
-双击运行（Windows）：
+双击 **`start_server.bat`**，看到下面这行就成功了：
 
 ```
-start_server.bat
-```
-
-看到类似输出即成功：
-
-```
-[loading] 加载识别模型（两端共享）...
-[loading] done
 [plugin] listening ws://127.0.0.1:8765
 [web] listening http://0.0.0.0:8000
 ```
 
-- **插件端** `ws://127.0.0.1:8765` —— 浏览器插件连这里（第六节）
-- **Web 端** `http://0.0.0.0:8000` —— 手机/浏览器网页看字幕（第八节）
-- 关闭窗口即停止服务（两端一起停）
+保持窗口开着（关掉即停止服务）。
 
-常用参数：
+### 5. 开始翻译
 
-| 参数 | 说明 |
-|------|------|
-| `--no-web` | 只开插件端，关掉 Web 端（纯浏览器插件用户可省资源） |
-| `--no-plugin` | 只开 Web 端，关掉插件端 |
-| `--model kotoba` | 日语专用模型（默认，需手动下载） |
-| `--model Systran/faster-whisper-large-v3` | 通用 Whisper，自动下载 |
-| `--engine sensevoice` | 切回 SenseVoice 引擎（需装 funasr） |
-| `--device cpu` / `--device cuda` | 手动指定设备 |
-| `--room 房间号` | Web 端默认监测的直播间 |
-| `--debug` | 打开诊断日志（排查音频/VAD 问题） |
+**在电脑上看** → 装插件（[方式 A](#方式-a浏览器插件)），点「开始翻译」。
 
-> `start_live_server.bat` 仍可用，等价于 `start_server.bat --no-plugin`（只开 Web 端，给纯手机用户）。
+**在手机上看** → 手机浏览器打开 `http://电脑IP:8000`（[方式 B](#方式-b手机网页)）。
 
 ---
 
-## 五、安装浏览器插件（Chrome / Edge）
+## 使用方式
 
-1. 打开 Chrome，地址栏输入 `chrome://extensions`（Edge 是 `edge://extensions`）
-2. 打开右上角 **「开发者模式」**
-3. 点 **「加载已解压的扩展程序」**
-4. 选择本目录下的 **`extension`** 文件夹
-5. 加载成功后，工具栏会出现插件图标
+### 方式 A：浏览器插件
 
----
+**安装插件**（只需一次）：
 
-## 六、使用
+1. Chrome 地址栏输入 `chrome://extensions`（Edge 用 `edge://extensions`）
+2. 打开右上角「**开发者模式**」
+3. 点「**加载已解压的扩展程序**」，选择本项目的 **`extension`** 文件夹
 
-1. **先启动本地识别服务**（双击 `start_server.bat`，保持窗口开着）
-2. 打开一个 B 站直播页面（`live.bilibili.com/房间号`）或视频页面（`www.bilibili.com/video/BV...`、番剧 `www.bilibili.com/bangumi/play/...`）
-3. 点击浏览器工具栏的插件图标，**首次使用先填入 DeepSeek API Key**，点「保存设置」
-4. 点 **「开始翻译」**
-   - 浏览器会请求采集当前标签页的声音，选择/确认后开始
-   - 视频底部会出现字幕条：上面是识别出的日语原文，下面是中文翻译（字幕条可拖拽）
-5. 点 **「停止」** 结束采集
+**使用**：
 
-> API Key 获取：登录 <https://platform.deepseek.com> → API Keys → 创建，得到 `sk-...`
+1. 确认本地服务已启动（`start_server.bat` 窗口开着）
+2. 打开 B 站直播页 / 视频页 / 番剧页
+3. 点插件图标 → 填入 **DeepSeek API Key** → 保存
+4. 点「**开始翻译**」→ 视频上出现字幕条（可拖拽移动）
+5. 点「**停止**」结束
 
----
+> API Key 获取：<https://platform.deepseek.com> → API Keys → 创建，得到 `sk-` 开头的字符串。
 
-## 七、常见问题
+### 方式 B：手机网页
 
-| 现象 | 处理 |
-|------|------|
-| 插件提示「无法连接识别服务」 | 确认 `start_server.bat` 已启动且显示 `listening` |
-| 字幕只有原文没有翻译 | 确认已保存 DeepSeek API Key，且账户有余额 |
-| 识别结果不对 / 断句奇怪 | 直播背景音乐较吵时会受影响；可调 `server/asr_server.py` 里的 VAD 参数 |
-| 首次启动卡在下载模型 | 保持网络畅通；模型缓存在 `%LOCALAPPDATA%\LiveTranslate` |
-| 换直播间后字幕串了 | 重新点一次「停止」再「开始」 |
-| 音频正常但无字幕 | 用 `--debug` 启动服务端，看 `[audio]` 帧的 RMS 是否正常流入 |
+适合「手机看直播、电脑跑翻译」：电脑自己抓 B 站直播流的音频，把字幕推到手机网页。
+
+1. 双击 `start_server.bat`（或 `start_live_server.bat` 只开 Web 端）
+2. 控制台会打印手机访问地址，形如 `http://192.168.x.x:8000`
+3. **手机和电脑连同一 Wi-Fi**，手机浏览器打开该地址
+4. 点右上角「**设置**」→ 填入 DeepSeek API Key + 直播间号（或从下拉列表选主播）→ 保存
+5. 等主播开播，页面自动开始滚动字幕；觉得检测慢可点「**检测开播**」立即检查
+
+> 手机打不开页面？多半是防火墙拦了 8000 端口，双击 **`add_firewall_rule.bat`** 一键放行。
 
 ---
 
-## 八、手机端 Web 服务（监测指定直播间）
+## 模型下载
 
-浏览器插件在手机上没法用（手机浏览器不能装插件、也采集不到标签页声音）。这个服务让
-**电脑自己抓取 B 站直播流的音频**，识别 + 翻译后，把字幕实时推到你手机打开的网页上。
-适合「手机看直播、旁边电脑跑翻译」的场景。
+模型不随仓库提供，放在 `%LOCALAPPDATA%\LiveTranslate\`（**纯英文路径**，sentencepiece 等 C++ 库无法处理中文路径）。
 
-```
-┌─────────────┐  手机浏览器打开网页（只显示字幕）
-│   手机       │  http://<电脑局域网IP>:8000
-└──────┬──────┘
-       │ WebSocket（字幕推送）
-┌──────▼─────────────────────────────────────────────┐
-│  live_web.py（电脑）                                │
-│  监测房间 → 开播后 playUrl → PyAV 解码直播流音频     │
-│  → VAD 切句 → whisper/SenseVoice 识别 → DeepSeek 翻译 │
-└─────────────────────────────────────────────────────┘
-```
+### kotoba-whisper（日语专用，推荐）
 
-### 启动
+精度更高，专为日语口语微调。下载 **5 个文件**到
+`%LOCALAPPDATA%\LiveTranslate\models\kotoba-whisper-v2.0-faster\`：
 
-1. 双击 `start_server.bat`（统一入口，两端都开）；只想开 Web 端可双击 `start_live_server.bat`（等价 `--no-plugin`）。首次启动会加载识别模型，稍等片刻
-2. 控制台会打印两个地址：
-   - 电脑本机：`http://127.0.0.1:8000`
-   - 手机访问：`http://<局域网IP>:8000`
-3. **手机和电脑连同一个 Wi-Fi**。电脑上打开 `http://127.0.0.1:8000`，点「设置」，用手机**扫页面里的二维码**即可直达
-4. 手机点右上角「设置」，填入 **DeepSeek API Key** 和直播间号，保存
-5. 等主播开播，页面会自动从「未开播」变成「直播中」，并开始滚动显示字幕
+| 文件 | 大小 | 下载 |
+|------|------|------|
+| `model.bin` | ~1.5GB | [HuggingFace](https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-faster/resolve/main/model.bin) ｜ [国内镜像](https://hf-mirror.com/kotoba-tech/kotoba-whisper-v2.0-faster/resolve/main/model.bin) |
+| `config.json` | ~1KB | [HuggingFace](https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-faster/resolve/main/config.json) ｜ [国内镜像](https://hf-mirror.com/kotoba-tech/kotoba-whisper-v2.0-faster/resolve/main/config.json) |
+| `tokenizer.json` | ~2.4MB | [HuggingFace](https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-faster/resolve/main/tokenizer.json) ｜ [国内镜像](https://hf-mirror.com/kotoba-tech/kotoba-whisper-v2.0-faster/resolve/main/tokenizer.json) |
+| `vocabulary.json` | ~1MB | [HuggingFace](https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-faster/resolve/main/vocabulary.json) ｜ [国内镜像](https://hf-mirror.com/kotoba-tech/kotoba-whisper-v2.0-faster/resolve/main/vocabulary.json) |
+| `preprocessor_config.json` | ~1KB | [HuggingFace](https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-faster/resolve/main/preprocessor_config.json) ｜ [国内镜像](https://hf-mirror.com/kotoba-tech/kotoba-whisper-v2.0-faster/resolve/main/preprocessor_config.json) |
 
-> 说明：Web 端需要抓 B 站直播流，依赖 `av`（PyAV）。若只用浏览器插件，可不装，统一入口会自动跳过抓流。
+> 也可从 ModelScope 整包下载：<https://www.modelscope.cn/models/kotoba-tech/kotoba-whisper-v2.0-faster>
 
-### 说明
+### faster-whisper-large-v3（通用，自动下载）
 
-- API Key 保存在本目录 `config.json`（本地生成，不入库），只存在电脑上。
-- 手机上看直播照常用 B 站 App / 浏览器，字幕页是**单独的页面**（二者会有一点时间差，属正常）。
-- 手机打不开页面：多半是 Windows 防火墙拦了 8000 端口，双击 `add_firewall_rule.bat` 一键放行。
-- 抓流只取音频（128kbps AAC），视频流会被丢弃，后台带宽占用很小。
+**无需手动操作**，没有 kotoba 时首次启动会自动从 ModelScope 下载（约 3GB）。
+手动地址：[ModelScope](https://www.modelscope.cn/models/Systran/faster-whisper-large-v3) ｜ [HuggingFace](https://huggingface.co/Systran/faster-whisper-large-v3)
+
+### 其他模型
+
+- **Silero VAD**：`pip install silero-vad` 自带模型，无需手动下载
+- **SenseVoice**（可选引擎）：装 `funasr` 后自动从 ModelScope 下载
 
 ---
 
-## 九、主播画像（按主播定制翻译）
+## 主播画像
 
-不同主播有各自的术语、梗、高频听错词，硬编码在一套提示词里会「好心办坏事」。
-所以翻译提示词拆成两层：
+不同主播有各自的术语、梗、高频听错词。翻译提示词分两层：
 
-- **基础提示词**（`server/streamer_profile.py` 里的 `BASE_PROMPT`）：所有主播通用的规则 + B 站通用术语（SC/舰长/小号等）
-- **主播画像**（`profiles/<房间号>.json`）：该主播专属的术语表、梗、高频听错词、说话风格
+- **基础提示词**（`server/streamer_profile.py` 的 `BASE_PROMPT`）：所有主播通用规则 + B 站通用术语（SC / 舰长 / 小号）
+- **主播画像**（`profiles/<房间号>.json`）：该主播专属的术语、梗、听错词、说话风格
 
-翻译时自动「基础提示词 + 当前主播画像」拼成最终提示词。**换主播不用改代码**，只需维护对应画像文件。
+翻译时自动拼接两层，**换主播不用改代码**。
 
-### 使用现成示例
+### 用现成示例
 
-仓库自带一份**真实可用的示例画像**（`profiles.example/22748536.json`，B 站主播「火羽ひのめ」），
-包含 20 条术语、3 个梗、8 组高频听错词，可直接参考或使用：
+仓库自带一份实战画像 `profiles.example/22748536.json`（B 站主播「火羽ひのめ」，
+含 20 条术语 + 3 个梗 + 8 组听错词），直接复制即可用：
 
 ```bash
-# 把示例复制到 profiles/ 即可生效（重启服务后）
 mkdir profiles
 copy profiles.example\22748536.json profiles\
 ```
 
-> Web 端「选择直播间」下拉列表会自动出现该主播（详见第八节），选中即用其画像翻译。
+重启后 Web 端「选择直播间」下拉列表会自动出现该主播。
 
-### 画像结构
+### 画像格式
 
 ```json
 {
   "room_id": 123456,
   "name": "某主播",
-  "glossary": [{"heard": "おば／オバ／オパ", "say": "阿姨", "note": "B站官方，对应『叔叔』"}],
+  "face": "https://...（可选，头像 URL）",
+  "style": "爱聊 FF14 和动漫、语气活泼",
+  "glossary": [{"heard": "おば／オバ", "say": "阿姨", "note": "B站官方梗"}],
   "memes": ["某梗的说明"],
-  "asr_fixes": [{"heard": "指針／感情／高い手", "correct": "艦長（舰长）"}],
-  "style": "爱聊 FF14 和动漫、语气活泼"
+  "asr_fixes": [{"heard": "指針／感情", "correct": "艦長（舰长）"}],
+  "rules": ["附加规则（自由文本）"]
 }
 ```
 
 | 字段 | 说明 |
 |------|------|
-| `room_id` | 直播间号（必填，决定画像与哪个房间对应） |
-| `name` | 主播名（Web 端下拉列表显示用） |
-| `face` | 头像 URL（可选，Web 端显示用） |
-| `style` | 说话风格描述（可选，会注入提示词） |
-| `glossary` | 术语表：`heard`（听到的日语）→ `say`（应翻译成） |
-| `memes` | 梗/黑话说明 |
-| `asr_fixes` | 高频听错词纠正：`heard`（识别错的）→ `correct`（实际意思） |
-| `rules` | 附加规则（自由文本） |
+| `room_id` | 直播间号（必填，决定与哪个房间对应） |
+| `name` | 主播名（Web 端下拉列表显示） |
+| `glossary` | 术语表：听到的日语 → 应翻译成 |
+| `asr_fixes` | 高频听错词纠正：识别错的 → 实际意思 |
+| `memes` / `rules` / `style` / `face` | 可选，梗、附加规则、风格描述、头像 |
 
-- 没有画像的主播：自动退化为只用基础提示词。
-- 画像改动后需**重启服务**生效。
-
-> **目录约定**：
-> - `profiles.example/` —— 示例画像，随仓库公开（供参考/直接使用）
-> - `profiles/` —— 你自己的画像，**不随仓库分发**（属个人数据，已在 `.gitignore` 排除）
+- 没有画像的主播自动退化为只用基础提示词
+- 画像改动后需**重启服务**生效
+- `profiles.example/` 随仓库公开；`profiles/` 是你私人的，不进仓库
 
 ---
 
-## 十、目录结构
+## 启动参数
+
+`start_server.bat` 可加参数（直接编辑 bat 或命令行传入）：
+
+| 参数 | 说明 |
+|------|------|
+| `--no-web` | 只开插件端（纯浏览器插件用户可省资源） |
+| `--no-plugin` | 只开 Web 端（等价 `start_live_server.bat`） |
+| `--model kotoba` | 日语专用模型（默认，需手动下载） |
+| `--model Systran/faster-whisper-large-v3` | 通用 Whisper，自动下载 |
+| `--engine sensevoice` | 切到 SenseVoice 引擎（需装 funasr） |
+| `--device cpu` / `--device cuda` | 手动指定设备（默认自动检测） |
+| `--plugin-port` / `--web-port` | 自定义端口（默认 8765 / 8000） |
+| `--room 房间号` | Web 端默认监测的直播间 |
+| `--vad-threshold 0.5` | VAD 灵敏度（越小越灵敏，字幕不出可降到 0.3） |
+| `--debug` | 打印音频诊断日志（排查收不到字幕的问题） |
+
+### GPU 加速（可选）
+
+faster-whisper 走 CTranslate2。要用 CUDA 需要：
+
+```bash
+pip install nvidia-cublas-cu12
+```
+
+然后把 `cublas64_12.dll` / `cublasLt64_12.dll` 复制到
+`venv\Lib\site-packages\ctranslate2\`。没显卡时自动回退 CPU（int8）。
+
+---
+
+## 字幕记录（供 AI 分析）
+
+看直播 / 视频 / 番剧时，服务会自动把「原文 + 译文 + 音频」按来源落盘到 `logs/`：
+
+```
+logs/
+├── room_<房间号>/       直播
+├── video_<BV号>/        视频
+└── bangumi_<ep号>/      番剧
+    ├── transcript.jsonl     每行一条：时间/session/source/original/translated/audio
+    └── audio/*.wav          每句的源音频（16kHz 单声道）
+```
+
+可用于第三方 AI 分析主播的术语、口癖，提炼成新的主播画像。
+
+---
+
+## 常见问题
+
+| 现象 | 处理 |
+|------|------|
+| 插件提示「无法连接识别服务」 | 确认 `start_server.bat` 窗口在跑且显示 `listening` |
+| 字幕只有原文，没有翻译 | 检查 API Key 是否填对（`sk-` 开头）；显示「[未配置翻译]」说明没填 |
+| 字幕完全不出现 | 加 `--debug` 启动，看是否打印 `[audio]` 帧和 `[ASR]` 结果 |
+| 识别不准 / 断句奇怪 | 背景音乐吵时会受影响；可试 `--vad-threshold 0.3` |
+| 首次启动卡在下载模型 | 保持联网；模型缓存在 `%LOCALAPPDATA%\LiveTranslate` |
+| 换直播间后字幕串了 | 点一次「停止」再「开始」 |
+| 手机打不开字幕页 | 防火墙拦了 8000 端口，跑 `add_firewall_rule.bat` |
+| 「检测开播」很慢 | 确认服务端能走代理（B 站接口直连可能卡死） |
+
+---
+
+## 目录结构
 
 ```
 直播翻译/
-├── start_server.bat         # 一键启动（统一入口：插件端 + Web 端）
+├── start_server.bat          # 一键启动（插件端 + Web 端）
+├── start_live_server.bat     # 只开 Web 端（等价 --no-plugin）
 ├── start_server.ps1
-├── requirements.txt         # Python 依赖清单
-├── LICENSE                  # MIT 许可证
-├── CHANGELOG.md             # 更新日志
-├── config.example.json      # 手机端服务配置示例（复制为 config.json 使用）
-├── profiles.example/        # 主播画像示例（复制到 profiles/ 即可用）
-│   └── 22748536.json        # 「火羽ひのめ」的真实画像（术语/梗/听错词）
+├── add_firewall_rule.bat     # 放行 8000 端口（手机端需要）
+├── requirements.txt          # Python 依赖
+├── LICENSE                   # MIT
+├── CHANGELOG.md              # 更新日志
+├── config.example.json       # 手机端配置示例（复制为 config.json）
+├── profiles.example/         # 主播画像示例（复制到 profiles/）
+│   └── 22748536.json
 ├── server/
-│   ├── main.py              # 【统一入口】一个进程同时开插件端(8765) + Web端(8000)
-│   ├── asr_server.py        # 核心库：VAD + whisper + 翻译 + 插件端协议
-│   ├── streamer_profile.py  # 主播画像 + 提示词拼接 + 日志落盘
-│   ├── live_web.py          # Web 端模块：监测直播间 + 抓流 + 网页字幕
-│   ├── web/index.html       # 【手机端】字幕页面（手机浏览器打开）
-├── extension/               # 浏览器插件（加载这个目录）
-│   ├── manifest.json
-│   ├── background.js        # 协调 popup / offscreen / 内容脚本
-│   ├── offscreen.js         # 采集标签页音频 + 降采样 + 发送
-│   ├── content.js           # 字幕叠加
-│   ├── content.css          # 毛玻璃字幕样式
-│   └── popup.html / popup.js / popup.css
-├── start_live_server.bat    # 等价 start_server.bat --no-plugin（只开 Web 端）
-└── add_firewall_rule.bat    # 放行 8000 端口（手机端需要）
-
-模型缓存（首次运行自动生成 / 手动下载）：
-  %LOCALAPPDATA%\LiveTranslate\models          # kotoba / VAD
-  %LOCALAPPDATA%\LiveTranslate\modelscope      # faster-whisper-large-v3 / SenseVoice
+│   ├── main.py               # 统一入口：同时开两个端口
+│   ├── asr_server.py         # 核心：VAD + 识别 + 翻译 + 插件端协议
+│   ├── live_web.py           # Web 端：监测直播间 + 抓流 + 网页字幕
+│   ├── streamer_profile.py   # 主播画像 + 提示词拼接 + 落盘
+│   └── web/
+│       └── index.html        # 手机字幕页
+└── extension/                # 浏览器插件（加载这个目录）
+    ├── manifest.json
+    ├── background.js         # 协调 popup / offscreen / content
+    ├── offscreen.js          # 采集标签页音频 + 降采样 + 发送
+    ├── content.js            # 字幕叠加
+    ├── content.css           # 毛玻璃字幕样式
+    └── popup.html / popup.js / popup.css
 ```
+
+模型缓存（不入库）：`%LOCALAPPDATA%\LiveTranslate\`
 
 ---
 
-## 许可证与免责声明
+## 许可证
 
-本项目采用 [MIT License](LICENSE) 开源。
+[MIT License](LICENSE)
 
-- 仅供学习交流使用，请勿用于商业用途。
-- 请遵守相关平台（Bilibili、DeepSeek）的服务条款。
-- 翻译内容由第三方模型生成，可能存在错误，请自行甄别。
-- 涉及视频/音频的采集与使用，请尊重内容版权。
+- 仅供学习交流，请勿用于商业用途
+- 请遵守 Bilibili、DeepSeek 的服务条款
+- 翻译由第三方模型生成，可能存在错误，请自行甄别
+- 涉及音视频采集，请尊重内容版权
