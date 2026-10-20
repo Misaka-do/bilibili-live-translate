@@ -403,6 +403,8 @@ async def handle_segment(ws, seg, api_key, room_id, session_id, uname, seg_seq):
             except Exception as e:  # noqa: BLE001
                 translated = f"[翻译失败: {e}]"
                 print(f"[tr error] {e}", flush=True)
+    else:
+        translated = "[未配置翻译]"
 
     # 落盘：原文 + 译文 + 音频引用（直播房间号 / 视频 BV 号 / 番剧号，供后续喂 AI 做主播分析）
     if room_id:

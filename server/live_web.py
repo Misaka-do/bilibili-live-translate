@@ -319,6 +319,8 @@ async def handle_segment(seg):
             except Exception as e:  # noqa: BLE001
                 translated = f"[翻译失败: {e}]"
                 print(f"[tr error] {e}", flush=True)
+    else:
+        translated = "[未配置翻译]"
 
     # 落盘：原文 + 译文 + 音频引用，供后续喂 AI 做主播分析
     streamer_profile.save_transcript(

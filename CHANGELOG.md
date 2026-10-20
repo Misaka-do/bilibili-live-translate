@@ -4,6 +4,15 @@
 
 格式基于[约定式提交](https://www.conventionalcommits.org/zh-hans/)（feat / fix / docs / refactor / chore）。
 
+## [2.5.0] - 2026-10-20
+
+### 新增
+- **开源示例主播画像** `profiles.example/22748536.json`（B 站主播「火羽ひのめ」）：含 20 条术语、3 个梗、8 组高频听错词，可直接复制到 `profiles/` 使用。
+- README「主播画像」章节补全字段说明表、示例复制命令、`profiles.example/` 与 `profiles/` 的目录约定。
+
+### 改进
+- **未配置翻译时明确提示**：没填 DeepSeek API Key 时，字幕显示「[未配置翻译]」而非空白，便于一眼区分「没配 key」和「翻译出错」。
+
 ## [2.4.1] - 2026-10-19
 
 ### 修复
