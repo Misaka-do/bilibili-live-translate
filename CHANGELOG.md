@@ -4,6 +4,11 @@
 
 格式基于[约定式提交](https://www.conventionalcommits.org/zh-hans/)（feat / fix / docs / refactor / chore）。
 
+## [2.5.1] - 2026-10-21
+
+### 修复
+- **主播头像加载失败**：B 站头像 CDN 有防盗链（Referer 检查），手机网页加载头像时带了本页地址作 Referer 被拒（403）。给两个头像 `<img>` 加 `referrerpolicy="no-referrer"`，加载时不发送 Referer，绕过防盗链。
+
 ## [2.5.0] - 2026-10-20
 
 ### 新增
