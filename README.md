@@ -110,7 +110,7 @@ pip install av -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 适合「手机看直播、电脑跑翻译」：电脑自己抓 B 站直播流的音频，把字幕推到手机网页。
 
-1. 双击 `start_server.bat`（或 `start_live_server.bat` 只开 Web 端）
+1. 双击 `start_server.bat`（只想开 Web 端、不开插件端，可加 `--no-plugin` 参数）
 2. 控制台会打印手机访问地址，形如 `http://192.168.x.x:8000`
 3. **手机和电脑连同一 Wi-Fi**，手机浏览器打开该地址
 4. 点右上角「**设置**」→ 填入 DeepSeek API Key + 直播间号（或从下拉列表选主播）→ 保存
@@ -208,7 +208,7 @@ copy profiles.example\22748536.json profiles\
 | 参数 | 说明 |
 |------|------|
 | `--no-web` | 只开插件端（纯浏览器插件用户可省资源） |
-| `--no-plugin` | 只开 Web 端（等价 `start_live_server.bat`） |
+| `--no-plugin` | 只开 Web 端，不开插件端 |
 | `--model kotoba` | 日语专用模型（默认，需手动下载） |
 | `--model Systran/faster-whisper-large-v3` | 通用 Whisper，自动下载 |
 | `--engine sensevoice` | 切到 SenseVoice 引擎（需装 funasr） |
@@ -267,8 +267,7 @@ logs/
 
 ```
 直播翻译/
-├── start_server.bat          # 一键启动（插件端 + Web 端）
-├── start_live_server.bat     # 只开 Web 端（等价 --no-plugin）
+├── start_server.bat          # 一键启动（插件端 + Web 端，可加 --no-web/--no-plugin）
 ├── start_server.ps1
 ├── add_firewall_rule.bat     # 放行 8000 端口（手机端需要）
 ├── requirements.txt          # Python 依赖
