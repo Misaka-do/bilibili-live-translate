@@ -204,12 +204,11 @@ class VadState:
     def _flush_segment(self):
         if not self._speech_buf:
             return None
-        # 语音密度过滤：大部分块低于阈值 → 当噪声/音乐丢弃
-        if len(self._conf_history) >= 4:
-            voiced = sum(1 for c in self._conf_history if c >= self.threshold)
-            if voiced / len(self._conf_history) < 0.25:
-                self._reset()
-                return None
+        # 注意：这里**不做**语音密度过滤。
+        # Silero 对「日语女声 + 游戏音效/BGM」判定偏保守，实测整段人声占比常只有
+        # 10~20%，早先按「voiced < 25% 就丢弃」会把整段含人声的语音误杀，
+        # 表现为游戏直播时连续几十秒甚至几分钟一句字幕都没有。
+        # 是否真的有人声，改由 whisper 的 no_speech_prob 判断（见 _transcribe）。
         seg = np.concatenate(self._speech_buf)
         self._reset()
         return seg
@@ -323,8 +322,16 @@ def _transcribe(audio):
             initial_prompt=_JA_INITIAL_PROMPT,
             temperature=0.0,
         )
-        text = "".join(s.text for s in segments)
-        return text.strip()
+        # 用 whisper 自己的「无语音概率」过滤纯音效/BGM 片段：
+        # Silero 的密度启发式对「人声+游戏音效」误杀严重（见 _flush_segment），
+        # 而 whisper 的 no_speech_prob 判断更准（实测有人声时通常 < 0.2）。
+        parts = []
+        for s in segments:
+            if getattr(s, "no_speech_prob", 0.0) > 0.6:
+                continue
+            if s.text:
+                parts.append(s.text)
+        return "".join(parts).strip()
     # sensevoice
     res = MODEL.generate(input=audio, language="auto", use_itn=True)
     if not res:
