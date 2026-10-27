@@ -116,18 +116,21 @@
       </div>
     </div>
 
-    <label>选择直播间</label>
-    <select id="roomSelect"></select>
+    <!-- 以下设置仅限局域网内访问可见（公网访问只能看字幕） -->
+    <div id="adminPanel" style="display:none;">
+      <label>选择直播间</label>
+      <select id="roomSelect"></select>
 
-    <label>房间号（自定义）</label>
-    <input id="roomId" type="text" inputmode="numeric" placeholder="输入房间号，如 12345678">
-    <div class="hint">在下拉里选预设主播，或直接输入任意房间号。</div>
+      <label>房间号（自定义）</label>
+      <input id="roomId" type="text" inputmode="numeric" placeholder="输入房间号，如 12345678">
+      <div class="hint">在下拉里选预设主播，或直接输入任意房间号。仅限局域网内访问可切换。</div>
 
-    <label>DeepSeek API Key（用于翻译）</label>
-    <input id="apiKey" type="password" placeholder="sk-..." autocomplete="off">
-    <div class="hint">翻译由电脑后端直连 DeepSeek，key 只保存在电脑上的 config.json。留空则只显示原文。</div>
+      <label>DeepSeek API Key（用于翻译）</label>
+      <input id="apiKey" type="password" placeholder="sk-..." autocomplete="off">
+      <div class="hint">翻译由电脑后端直连 DeepSeek，key 只保存在电脑上的 config.json。留空则只显示原文。</div>
 
-    <button class="btn" id="save" style="background:var(--accent);">保存设置</button>
+      <button class="btn" id="save" style="background:var(--accent);">保存设置</button>
+    </div>
   </div>
 
   <main id="list">
@@ -142,6 +145,9 @@
 
 <script>
 (function () {
+  // 后端在返回页面时会把 __ADMIN_FLAG__ 替换成 true/false：
+  // 带正确 admin 令牌访问 → true（管理页面）；普通访问 → false（只读页面）
+  const PAGE_ADMIN = (typeof __ADMIN_FLAG__ !== 'undefined') ? __ADMIN_FLAG__ : false;
   const $ = (id) => document.getElementById(id);
   const list = $('list'), empty = $('empty'), emptyText = $('emptyText');
   const dot = $('dot'), statusText = $('statusText'), titleLine = $('titleLine'), roomBadge = $('roomBadge');
@@ -159,6 +165,7 @@
   let roomPrefilled = false;
   let presets = [];
   let currentRoom = null;
+  let lanAllowed = PAGE_ADMIN;   // 是否有管理权限（页面带 token 或内网 IP）
 
   function setConn(ok, text) {
     conn.className = ok ? 'conn' : 'conn bad';
@@ -241,11 +248,12 @@
     atBottom = nearBottom;
     if (nearBottom) { pendingNew = 0; moreBtn.style.display = 'none'; }
   });
-  moreBtn.onclick = scrollBottom;
-  $('clearBtn').onclick = () => {
+  function clearSubtitles() {
     list.querySelectorAll('.sub').forEach((n) => n.remove());
     lastId = -1; lastSub = null; pendingNew = 0; moreBtn.style.display = 'none';
-  };
+  }
+  moreBtn.onclick = scrollBottom;
+  $('clearBtn').onclick = clearSubtitles;
   $('checkBtn').onclick = () => {
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       statusText.textContent = '未连接，请稍候重试';
@@ -296,6 +304,11 @@
   }
 
   function onStatus(s) {
+    // 管理权限：页面自带 token 或服务端确认（内网 IP / 带 token 的 WS）
+    if (s.can_admin !== undefined) {
+      lanAllowed = PAGE_ADMIN || !!s.can_admin;
+      $('adminPanel').style.display = lanAllowed ? '' : 'none';
+    }
     currentRoom = s.room_id;
     dot.className = s.live ? 'dot live' : 'dot';
     if (s.live) statusText.textContent = '直播中';
@@ -328,7 +341,10 @@
   function connect() {
     if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
     const proto = location.protocol === 'https:' ? 'wss://' : 'ws://';
-    ws = new WebSocket(proto + location.host + '/ws');
+    // 把页面 URL 的 admin 参数透传给 WebSocket，服务端据此识别管理权限
+    const qs = new URLSearchParams(location.search);
+    const admin = qs.get('admin') || '';
+    ws = new WebSocket(proto + location.host + '/ws' + (admin ? '?admin=' + encodeURIComponent(admin) : ''));
     ws.onopen = () => setConn(true, '已连接');
     ws.onclose = () => { setConn(false, '已断开，重连中…'); setTimeout(connect, 2000); };
     ws.onerror = () => {};
@@ -337,6 +353,7 @@
       if (d.type === 'status') onStatus(d);
       else if (d.type === 'history') onHistory(d.items);
       else if (d.type === 'asr' && d.original) onAsr(d);
+      else if (d.type === 'clear') clearSubtitles();  // 切换直播间：清掉旧主播残留字幕
     };
   }
   // 手机切后台再回来：立即检查连接，断了就马上重连（不必等 onclose 的定时器）
@@ -353,7 +370,8 @@
     const key = $('apiKey').value.trim();
     const room = roomId.value.trim();
     if (key) ws.send(JSON.stringify({ type: 'setKey', apiKey: key }));
-    if (room && /^\d+$/.test(room)) ws.send(JSON.stringify({ type: 'setRoom', roomId: room }));
+    // 只有局域网访问才允许切换直播间
+    if (lanAllowed && room && /^\d+$/.test(room)) ws.send(JSON.stringify({ type: 'setRoom', roomId: room }));
     $('settings').classList.remove('open');
     $('apiKey').value = '';
   };

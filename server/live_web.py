@@ -22,6 +22,7 @@ B 站直播间监测 + 实时翻译 Web 服务（手机端用）。
 import argparse
 import asyncio
 import collections
+import ipaddress
 import json
 import os
 import socket
@@ -43,6 +44,8 @@ from websockets.datastructures import Headers  # noqa: E402
 import asr_server  # noqa: E402
 import streamer_profile  # noqa: E402
 
+_ts = streamer_profile.ts  # 日志时间戳前缀 HH:MM:SS
+
 # av（PyAV）只在「抓直播流」时才需要，属于可选依赖。
 # 这里不顶层导入，避免只用插件端的用户因没装 av 而无法启动统一入口。
 # 真正用到的地方（capture_thread / 开播抓流）会按需 import。
@@ -57,6 +60,66 @@ UA = (
     "(KHTML, like Gecko) Chrome/120.0 Safari/537.36"
 )
 HTTP_HEADERS = {"User-Agent": UA, "Referer": REFERER}
+
+# 允许「免 token 管理」的网段（CIDR 格式）。
+# ⚠️ 不要放 127.0.0.0/8：Cloudflare Tunnel（cloudflared）跑在本机，
+# 公网流量经它转发后，服务端看到的对端 IP 恒为 127.0.0.1，
+# 放行回环等于把公网用户全当内网（管理界面会对公网敞开）。
+# 管理方式：
+#   - 10.0.0.0/24 内网直连（手机/本机内网 IP）→ 免 token 管理
+#   - 其他来源（含 CF 隧道公网访问）→ 必须 URL 带 ?admin=<ADMIN_TOKEN>
+LAN_NETWORKS = ["10.0.0.0/24"]
+
+# 管理令牌：通过公网（如 Cloudflare 隧道）访问时，URL 带上 ?admin=<此令牌> 才开放
+# 管理设置（选择直播间 / API Key）。相当于「路径密码」。
+#
+# 令牌不写死在代码里（仓库是公开的），改为从 config.json 的 admin_token 字段读取：
+#   { "admin_token": "你自己的一串随机字符" }
+# 未配置时：公网无法进入管理界面（仅内网 LAN_NETWORKS 直连可管理）。
+ADMIN_TOKEN_DEFAULT = ""
+
+
+def _get_admin_token():
+    """取当前管理令牌：优先 config.json，其次环境变量 LT_ADMIN_TOKEN。"""
+    return (config.get("admin_token") or os.environ.get("LT_ADMIN_TOKEN") or ADMIN_TOKEN_DEFAULT).strip()
+
+
+def _request_admin(request):
+    """验证请求 query 里的 admin 令牌是否正确。"""
+    try:
+        from urllib.parse import parse_qs, urlsplit
+
+        expected = _get_admin_token()
+        if not expected:
+            return False  # 未配置令牌 → 公网不可管理
+        q = parse_qs(urlsplit(request.path).query)
+        return q.get("admin", [""])[0] == expected
+    except Exception:
+        return False
+
+
+def _is_lan_ip(ip):
+    """判断 IP 是否属于允许管理直播间的局域网网段。"""
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    for net in LAN_NETWORKS:
+        try:
+            if addr in ipaddress.ip_network(net, strict=False):
+                return True
+        except ValueError:
+            continue
+    return False
+
+
+def _peer_ip(ws):
+    """从 websocket 连接取对端 IP 字符串。"""
+    peer = getattr(ws, "remote_address", None)
+    if isinstance(peer, tuple) and peer:
+        return str(peer[0])
+    return str(peer or "")
+
 
 CONFIG_PATH = os.path.join(streamer_profile.APP_ROOT, "config.json")
 WEB_INDEX = os.path.join(streamer_profile.BUNDLE_DIR, "web", "index.html")
@@ -92,6 +155,14 @@ clients = set()              # 已连接的网页 WebSocket
 seg_queue = asyncio.Queue()  # 待识别音频片段（浮点 16k 单声道）
 seq = 0                      # 字幕消息自增 id
 seq_lock = threading.Lock()
+
+# 抓流看门狗：直播流「半开卡死」时 ffmpeg 不报错、也不产帧，靠它检测并报警。
+_audio_ts_lock = threading.Lock()
+_last_audio_ts = 0.0
+_watchdog_stop = threading.Event()
+_watchdog_thread = None
+WATCHDOG_INTERVAL = 15       # 秒：看门狗检查间隔
+WATCHDOG_IDLE_ALARM = 20     # 秒：超过这么久没解到音频帧就报警
 
 capture_active = False
 current_session_id = ""      # 当前抓流会话 id（音频文件名 + 日志 session 字段）
@@ -191,7 +262,7 @@ def fetch_room_info(room_id):
             info["face"] = anchor.get("face", "")
         return info
     except Exception as e:  # noqa: BLE001
-        print(f"[room] 获取房间信息失败：{e}", flush=True)
+        print(f"[{_ts()}] [room] 获取房间信息失败：{e}", flush=True)
         return None
 
 
@@ -204,11 +275,50 @@ def fetch_preset_faces():
                 got += 1
         except Exception:
             pass
-    print(f"[preset] 头像缓存预热 {got}/{len(PRESET_ROOMS)}", flush=True)
+    print(f"[{_ts()}] [preset] 头像缓存预热 {got}/{len(PRESET_ROOMS)}", flush=True)
+
+
+def _speed_test_url(url, bytes_to_fetch=262144, timeout=3.0):
+    """对一个直播流地址做限时测速，返回下载速度（MB/s）。失败/超时返回 0。
+
+    用 Range 请求只下载开头一小段（约 256KB），避免把直播流白拉太多数据。
+    """
+    try:
+        t0 = time.time()
+        r = streamer_profile.HTTP_SESSION.get(
+            url,
+            headers={**HTTP_HEADERS, "Range": f"bytes=0-{bytes_to_fetch - 1}"},
+            stream=True,
+            timeout=(3, timeout),
+        )
+        try:
+            if r.status_code not in (200, 206):
+                return 0.0
+            got = 0
+            for chunk in r.iter_content(chunk_size=65536):
+                if not chunk:
+                    continue
+                got += len(chunk)
+                if got >= bytes_to_fetch:
+                    break
+                if time.time() - t0 > timeout:
+                    break
+        finally:
+            r.close()
+        dt = time.time() - t0
+        if dt <= 0:
+            return 0.0
+        return got / dt / 1024 / 1024  # MB/s
+    except Exception:
+        return 0.0
 
 
 def fetch_play_url(room_id):
-    """返回 FLV 直播流直链；失败抛异常。"""
+    """返回 FLV 直播流直链；失败抛异常。
+
+    B 站直播流有多个 CDN 节点（且节点会轮换），这里对所有节点逐个测速，
+    选最快的返回，避免固定用第一个节点而连到慢/坏节点。
+    """
     r = streamer_profile.HTTP_SESSION.get(
         "https://api.live.bilibili.com/room/v1/Room/playUrl",
         params={
@@ -229,7 +339,26 @@ def fetch_play_url(room_id):
     durl = (d.get("data") or {}).get("durl") or []
     if not durl:
         raise RuntimeError("playUrl 返回空 durl")
-    return durl[0]["url"]
+    urls = [u.get("url", "") for u in durl if u.get("url")]
+    if not urls:
+        raise RuntimeError("playUrl 无有效 url")
+    if len(urls) == 1:
+        return urls[0]
+
+    # 逐个测速，选最快的节点
+    best_url, best_speed = None, -1.0
+    for u in urls:
+        host = u.split("/")[2] if "//" in u else u
+        spd = _speed_test_url(u)
+        print(f"[{_ts()}] [cdn] 测速 {spd:.2f} MB/s  <- {host}", flush=True)
+        if spd > best_speed:
+            best_speed = spd
+            best_url = u
+    if best_url is None:
+        best_url = urls[0]  # 全部测速失败，回退第一个
+    host = best_url.split("/")[2] if "//" in best_url else best_url
+    print(f"[{_ts()}] [cdn] 选用 {host}（{best_speed:.2f} MB/s）", flush=True)
+    return best_url
 
 
 # --------------------------------------------------------------------------- #
@@ -295,7 +424,7 @@ async def handle_segment(seg):
     with seq_lock:
         seq += 1
         sid = seq
-    print(f"[ASR] {text}", flush=True)
+    print(f"[{_ts()}] [ASR] {text}", flush=True)
 
     # 先推原文（原文秒出），译文稍后补上
     await broadcast({"type": "asr", "id": sid, "original": text, "translated": ""})
@@ -315,7 +444,7 @@ async def handle_segment(seg):
                 translated = await asyncio.to_thread(
                     asr_server.translate_deepseek, text, key, room_id
                 )
-                print(f"[TR] {translated}", flush=True)
+                print(f"[{_ts()}] [TR] {translated}", flush=True)
             except Exception as e:  # noqa: BLE001
                 translated = f"[翻译失败: {e}]"
                 print(f"[tr error] {e}", flush=True)
@@ -382,7 +511,9 @@ def capture_thread(room_id, loop, stop_event):
         raise e
     vad = asr_server.VadState()
     vad.threshold = vad_threshold
-    print("[capture] 开始抓取直播音频", flush=True)
+    with _audio_ts_lock:
+        _last_audio_ts = time.time()
+    print(f"[{_ts()}] [capture] 开始抓取直播音频", flush=True)
 
     while not stop_event.is_set():
         container = None
@@ -393,21 +524,23 @@ def capture_thread(room_id, loop, stop_event):
                 options={
                     "user_agent": UA,
                     "referer": REFERER,
-                    "rw_timeout": "10000000",      # 10 秒读超时，流断了能感知
-                    "reconnect": "1",
-                    "reconnect_streamed": "1",
-                    "reconnect_delay_max": "5",
+                    "rw_timeout": "3000000",       # 3 秒读超时，卡流更快暴露
+                    "stimeout": "3000000",         # 3 秒 socket 超时
+                    # 不用 ffmpeg 内部 reconnect：它会拿同一个播放地址无限重试，
+                    # CDN 节点假死时会静默卡几分钟。改由 Python 层重连并重新取播放地址换节点。
                 },
             )
             with _container_lock:
                 _current_container = container
             astream = next(s for s in container.streams if s.type == "audio")
             resampler = av.AudioResampler(format="flt", layout="mono", rate=SAMPLE_RATE)
-            print("[capture] 直播流已打开", flush=True)
+            print(f"[{_ts()}] [capture] 直播流已打开", flush=True)
 
             for frame in container.decode(astream):
                 if stop_event.is_set():
                     break
+                with _audio_ts_lock:
+                    _last_audio_ts = time.time()
                 for out in resampler.resample(frame):
                     arr = out.to_ndarray().reshape(-1)
                     seg = vad.process(arr.astype(np.float32, copy=False))
@@ -415,7 +548,7 @@ def capture_thread(room_id, loop, stop_event):
                         enqueue_segment(loop, seg)
         except Exception as e:  # noqa: BLE001
             if not stop_event.is_set():
-                print(f"[capture] 中断，3 秒后重连：{e}", flush=True)
+                print(f"[{_ts()}] [capture] 中断，3 秒后重连：{e}", flush=True)
                 time.sleep(3)
         finally:
             if container is not None:
@@ -427,7 +560,72 @@ def capture_thread(room_id, loop, stop_event):
                 if _current_container is container:
                     _current_container = None
 
-    print("[capture] 已停止", flush=True)
+    print(f"[{_ts()}] [capture] 已停止", flush=True)
+
+
+def _watchdog_loop():
+    """抓流看门狗：定期检查是否还有音频帧进来，直播流假死时强制重连。
+
+    rw_timeout 对「HTTP 流半死」（socket 还在发 keepalive/空数据、但没有有效音频帧）
+    无能为力，decode 会一直阻塞。看门狗检测到长时间无音频帧时，主动 close 当前容器，
+    让阻塞中的 decode 抛异常退出，从而走 capture_thread 的 except 重连逻辑
+    （重新取播放地址、换 CDN 节点）。
+    """
+    while not _watchdog_stop.is_set():
+        _watchdog_stop.wait(WATCHDOG_INTERVAL)
+        if _watchdog_stop.is_set():
+            break
+        with _audio_ts_lock:
+            last = _last_audio_ts
+        if last <= 0:
+            continue
+        idle = time.time() - last
+        if idle > WATCHDOG_IDLE_ALARM:
+            with _container_lock:
+                c = _current_container
+            if c is not None:
+                print(
+                    f"[{_ts()}] [capture] 看门狗：已 {int(idle)} 秒无音频帧，"
+                    f"强制关闭容器触发重连",
+                    flush=True,
+                )
+                try:
+                    c.close()
+                except Exception as e:  # noqa: BLE001
+                    print(f"[{_ts()}] [capture] 看门狗 close 失败：{e}", flush=True)
+            else:
+                print(
+                    f"[{_ts()}] [capture] 看门狗：已 {int(idle)} 秒无音频帧，"
+                    f"但无容器（可能正在重连中）",
+                    flush=True,
+                )
+
+
+def _start_watchdog():
+    """惰性启动看门狗线程（全局仅一个，常驻复用）。
+
+    不随 stop/start 反复新建——否则 force_reselect 时旧线程还没退出、
+    新线程又起来，多个看门狗并存会重复触发 close。
+    """
+    global _watchdog_thread
+    if _watchdog_thread is not None and _watchdog_thread.is_alive():
+        # 已常驻：只重置音频时间戳，告诉看门狗「开始新一轮监控」
+        with _audio_ts_lock:
+            _last_audio_ts = time.time()
+        return
+    _watchdog_stop.clear()
+    with _audio_ts_lock:
+        _last_audio_ts = time.time()
+    _watchdog_thread = threading.Thread(
+        target=_watchdog_loop, daemon=True, name="capture-watchdog"
+    )
+    _watchdog_thread.start()
+
+
+def _stop_watchdog():
+    """停止抓流时调用：把音频时间戳清零，让常驻看门狗进入空转（不误触发）。"""
+    with _audio_ts_lock:
+        _last_audio_ts = 0.0
 
 
 def start_capture(room_id, loop):
@@ -445,24 +643,43 @@ def start_capture(room_id, loop):
     )
     _capture_thread = t
     t.start()
+    _start_watchdog()
 
 
 def stop_capture():
-    """请求停止抓流：只 set 当前线程的停止事件，不做任何跨线程 close。"""
+    """请求停止抓流：set 停止事件 + close 当前容器。
+
+    只 set 事件不够：若旧流的 decode 正阻塞（流卡死），stop_event 要等下一个
+    frame 才被检查到，线程退不出去。close 容器能让阻塞的 decode 立即抛异常退出。
+    close 是幂等的，capture 线程 finally 里再 close 一次无害；且 finally 里有
+    `_current_container is container` 保护，不会误清新线程的容器。
+    """
     global capture_active
     if not capture_active:
         return
     capture_active = False
+    _stop_watchdog()
     ev = _capture_stop
     if ev is not None:
         ev.set()
+    with _container_lock:
+        c = _current_container
+    if c is not None:
+        try:
+            c.close()
+        except Exception:
+            pass
 
 
 # --------------------------------------------------------------------------- #
 # 监测循环
 # --------------------------------------------------------------------------- #
-async def check_room(loop):
-    """拉取当前房间状态并据此启停抓流（监测循环和切换房间后都调用它）。"""
+async def check_room(loop, force_reselect=False):
+    """拉取当前房间状态并据此启停抓流（监测循环和切换房间后都调用它）。
+
+    force_reselect=True 时（手动点「检测开播」）：即使正在抓流，也先停再重开，
+    让抓流重新走 fetch_play_url 的 CDN 节点测速选优——用于「当前节点变慢/卡了」时手动换节点。
+    """
     global live_info
     room_id = config.get("room_id")
     info = await asyncio.to_thread(fetch_room_info, room_id)
@@ -473,7 +690,11 @@ async def check_room(loop):
 
     live_info.update(info)
     if info["live"] and not capture_active:
-        print(f"[monitor] 检测到开播：{info['title']}", flush=True)
+        print(f"[{_ts()}] [monitor] 检测到开播：{info['title']}", flush=True)
+        start_capture(room_id, loop)
+    elif info["live"] and capture_active and force_reselect:
+        print(f"[{_ts()}] [monitor] 手动强制重选 CDN 节点", flush=True)
+        stop_capture()
         start_capture(room_id, loop)
     elif not info["live"] and capture_active:
         print("[monitor] 检测到下播，停止抓流", flush=True)
@@ -510,13 +731,26 @@ def process_request(connection, request):
     # WebSocket 升级请求：放行交给 websockets 握手
     if request.headers.get("Upgrade", "").lower() == "websocket":
         return None
-    path = request.path
+    raw_path = request.path
+    # 剥离 query 参数（如 /?admin=xxx），只比较路径部分
+    try:
+        from urllib.parse import urlsplit
+
+        path = urlsplit(raw_path).path
+    except Exception:
+        path = raw_path
     if path in ("/", "/index.html"):
+        # 页面里的 __ADMIN_FLAG__ 占位符替换为实际权限标志：
+        # 带正确 admin 令牌的请求 → true（管理页面），否则 → false（只读页面）
+        is_admin = _request_admin(request)
+        html = _index_html.replace(
+            b"__ADMIN_FLAG__", b"true" if is_admin else b"false"
+        )
         return Response(
             200,
             "OK",
             Headers({"Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache"}),
-            _index_html,
+            html,
         )
     if path == "/health":
         body = json.dumps(
@@ -546,9 +780,19 @@ def process_request(connection, request):
 async def ws_handler(ws):
     clients.add(ws)
     peer = getattr(ws, "remote_address", "?")
-    print(f"[web] 客户端接入：{peer}（共 {len(clients)} 个）", flush=True)
+    # 管理权限：内网 IP 或带正确 admin 令牌（公网走 Cloudflare 隧道时用令牌）
+    is_lan = _is_lan_ip(_peer_ip(ws))
+    is_admin = _request_admin(ws.request) if getattr(ws, "request", None) else False
+    can_admin = is_lan or is_admin
+    print(
+        f"[web] 客户端接入：{peer}（共 {len(clients)} 个，"
+        f"{'管理' if can_admin else '只读'}）",
+        flush=True,
+    )
     try:
-        await ws.send(json.dumps(status_message(), ensure_ascii=False))
+        _status = status_message()
+        _status["can_admin"] = can_admin
+        await ws.send(json.dumps(_status, ensure_ascii=False))
         # 回放断线期间错过的字幕历史（新进/重连的客户端都能补上）
         await ws.send(
             json.dumps(
@@ -565,11 +809,19 @@ async def ws_handler(ws):
                 continue
             t = data.get("type")
             if t == "setKey":
+                if not can_admin:
+                    # 非管理客户端不允许提交 API Key（防绕过前端直接发消息）
+                    print(f"[setKey] 拒绝：{peer} 无管理权限", flush=True)
+                    continue
                 config["api_key"] = (data.get("apiKey") or "").strip()
                 save_config()
                 print("[setKey]", "ok" if config["api_key"] else "(清空)", flush=True)
                 await broadcast(status_message())
             elif t == "setRoom":
+                if not can_admin:
+                    # 非管理客户端不允许切换直播间（防绕过前端直接发消息）
+                    print(f"[setRoom] 拒绝：{peer} 无管理权限", flush=True)
+                    continue
                 rid = str(data.get("roomId") or "").strip()
                 if rid.isdigit():
                     config["room_id"] = int(rid)
@@ -577,14 +829,20 @@ async def ws_handler(ws):
                     # 换房间：先停旧抓流，再立即按新房间重新判断（不等下轮监测）
                     stop_capture()
                     live_info.update({"live": False, "title": "", "uname": "", "face": ""})
+                    # 清空字幕历史（防断线重连回放旧主播字幕）
+                    subtitle_history.clear()
                     print(f"[setRoom] 切换到房间 {rid}", flush=True)
+                    # 广播清屏信号：让所有客户端清掉旧主播的残留字幕
+                    await broadcast({"type": "clear"})
                     await check_room(asyncio.get_running_loop())
             elif t == "getStatus":
-                await ws.send(json.dumps(status_message(), ensure_ascii=False))
+                _s = status_message()
+                _s["can_admin"] = can_admin
+                await ws.send(json.dumps(_s, ensure_ascii=False))
             elif t == "checkNow":
-                # 手动触发一次开播检查（不等下一次轮询周期）
-                print("[checkNow] 手动检查开播状态", flush=True)
-                await check_room(asyncio.get_running_loop())
+                # 手动触发一次开播检查：若已在抓流，则强制重连并重选最优 CDN 节点
+                print("[checkNow] 手动检查开播状态（含 CDN 节点重选）", flush=True)
+                await check_room(asyncio.get_running_loop(), force_reselect=True)
     except websockets.exceptions.ConnectionClosed:
         pass
     finally:
