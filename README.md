@@ -118,6 +118,29 @@ pip install av -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 > 手机打不开页面？多半是防火墙拦了 8000 端口，双击 **`add_firewall_rule.bat`** 一键放行。
 
+#### 公网访问（Cloudflare Tunnel 等）
+
+想把字幕分享给外网朋友，可以用 Cloudflare Tunnel 把本机 8000 端口映射出去。
+
+**默认公网只能看字幕，不能改设置**（不会暴露 API Key、也不能乱切直播间）。管理权限分两种：
+
+| 来源 | 管理权限 |
+|------|---------|
+| 内网直连（`10.0.0.0/24`） | ✅ 免令牌，设置全开 |
+| 公网 / 外部 | ❌ 只读（默认） |
+| 公网 + URL 带令牌 | ✅ 设置全开 |
+
+启用公网管理：在 `config.json` 里加一行 `admin_token`（**不要提交到仓库**，该文件已被 gitignore）：
+
+```json
+{ "admin_token": "你自己的一串随机字符" }
+```
+
+之后用 `https://你的域名/?admin=你的令牌` 访问即可管理；不带令牌则为只读。
+
+> ⚠️ `10.0.0.0/24` 这个「内网免令牌」网段可在 `server/live_web.py` 的 `LAN_NETWORKS` 里按需修改。
+> 注意 Cloudflare Tunnel 跑在本机，公网流量对端 IP 恒为 `127.0.0.1`，所以**不要**把回环地址加进放行列表。
+
 ---
 
 ## 模型下载
