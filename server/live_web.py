@@ -25,6 +25,7 @@ import collections
 import ipaddress
 import json
 import os
+import shutil
 import socket
 import sys
 import threading
@@ -179,12 +180,21 @@ def load_config(args):
     global config
     if os.path.isfile(CONFIG_PATH):
         try:
-            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+            # utf-8-sig：兼容带 BOM 的文件。Windows 记事本 / PowerShell 的
+            # Set-Content -Encoding UTF8 写出时可能带 BOM，普通 utf-8 解析会直接失败，
+            # 导致配置（房间号 / API Key / 管理令牌）全部丢失。
+            with open(CONFIG_PATH, "r", encoding="utf-8-sig") as f:
                 data = json.load(f)
             if isinstance(data, dict):
                 config.update(data)
         except Exception as e:  # noqa: BLE001
             print(f"[warn] 读取 config.json 失败：{e}", flush=True)
+            # 先备份原文件：否则后续任何 save_config 都会用内存里的空配置把它覆盖掉
+            try:
+                shutil.copy2(CONFIG_PATH, CONFIG_PATH + ".bak")
+                print("[warn] 已备份原文件到 config.json.bak（可手动修复后改回 config.json）", flush=True)
+            except Exception:  # noqa: BLE001
+                pass
     # 命令行参数优先级最高
     if args.room is not None:
         config["room_id"] = args.room
@@ -194,8 +204,11 @@ def load_config(args):
 
 def save_config():
     try:
-        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+        # 用临时文件 + 原子替换，避免写到一半崩溃留下损坏的 config.json
+        tmp = CONFIG_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(config, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, CONFIG_PATH)
     except Exception as e:  # noqa: BLE001
         print(f"[warn] 保存 config.json 失败：{e}", flush=True)
 

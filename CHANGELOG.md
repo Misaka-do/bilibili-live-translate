@@ -4,6 +4,14 @@
 
 格式基于[约定式提交](https://www.conventionalcommits.org/zh-hans/)（feat / fix / docs / refactor / chore）。
 
+## [2.6.1] - 2026-10-27
+
+### 修复
+- **config.json 带 BOM 时读取失败、配置被清空**：Windows 记事本 / PowerShell（`Set-Content -Encoding UTF8`）写出的 JSON 可能带 UTF-8 BOM，普通 `utf-8` 解码会直接抛异常，导致房间号、API Key、管理令牌全部读不到、随后被空配置覆盖丢失。
+  - 读取改用 `utf-8-sig`，自动兼容有 / 无 BOM。
+  - 解析失败时**先把原文件备份为 `config.json.bak`**，避免后续 `save_config` 把还能抢救的数据覆盖掉。
+  - `save_config` 改为「写临时文件 + 原子替换」，避免写到一半崩溃留下损坏文件。
+
 ## [2.6.0] - 2026-10-27
 
 ### 新增
