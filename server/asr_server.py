@@ -313,8 +313,12 @@ def _transcribe(audio):
         segments, info = MODEL.transcribe(
             audio,
             language="ja",
-            beam_size=8,
-            vad_filter=True,  # 用神经网络 VAD 过滤背景音乐
+            # 实时场景用 greedy 解码：beam 越大越慢（beam=8 比 beam=1 慢数倍），
+            # 直播翻译对延迟敏感，用 beam=1 最快。若觉得识别质量下降可调回 2~3。
+            beam_size=1,
+            # 外面已经用 Silero VAD 切好句了，whisper 内部不必再跑一遍 VAD
+            # （双重 VAD 既慢又可能把短句再切碎）。
+            vad_filter=False,
             condition_on_previous_text=False,
             initial_prompt=_JA_INITIAL_PROMPT,
             temperature=0.0,
@@ -384,7 +388,7 @@ async def handle_segment(ws, seg, api_key, room_id, session_id, uname, seg_seq):
     if not text:
         return
 
-    print(f"[ASR] {text}", flush=True)
+    print(f"[{streamer_profile.ts()}] [ASR] {text}", flush=True)
 
     # 截取音频落盘（只存有实际识别结果的段；直播/视频/番剧都记录，供第三方 AI 分析）
     audio_file = None
@@ -399,7 +403,7 @@ async def handle_segment(ws, seg, api_key, room_id, session_id, uname, seg_seq):
                 translated = await asyncio.to_thread(
                     translate_deepseek, text, api_key, room_id
                 )
-                print(f"[TR] {translated}", flush=True)
+                print(f"[{streamer_profile.ts()}] [TR] {translated}", flush=True)
             except Exception as e:  # noqa: BLE001
                 translated = f"[翻译失败: {e}]"
                 print(f"[tr error] {e}", flush=True)

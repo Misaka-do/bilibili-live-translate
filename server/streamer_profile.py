@@ -26,6 +26,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 
 
+def ts():
+    """当前时间 HH:MM:SS，用于日志前缀。"""
+    return time.strftime("%H:%M:%S")
+
+
 def _is_frozen():
     """是否运行在 PyInstaller 打包后的环境。"""
     return getattr(sys, "frozen", False)
